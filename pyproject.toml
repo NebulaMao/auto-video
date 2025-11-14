@@ -1,0 +1,150 @@
+[project]
+name = "autovideo"
+version = "0.1.0"
+description = "自动化宣传视频生成系统 - 基于AI技术的自动化宣传视频生成工具"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "AutoVideo Team", email = "autovideo@example.com" }
+]
+license = { text = "MIT" }
+keywords = ["video", "ai", "automation", "tts", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # 核心依赖
+    "toml>=0.10.2", # TOML配置文件解析
+    "pydantic>=2.0.0", # 数据验证和设置管理
+    # AI和机器学习
+    "openai>=1.0.0", # OpenAI SDK (兼容DeepSeek API)
+    "sentence-transformers>=2.2.2", # 语义匹配模型
+    "torch>=2.0.0", # PyTorch深度学习框架
+    "transformers>=4.30.0", # Hugging Face transformers
+    # 视频和音频处理
+    # moviepy已移除,改用原生FFmpeg进行视频处理
+    "ffmpeg-python>=0.2.0", # FFmpeg Python接口
+    "edge-tts>=6.1.0", # 微软Edge TTS
+    "pydub>=0.25.1", # 音频处理
+    # 图像处理
+    "Pillow>=10.0.0", # 图像处理库
+    "opencv-python>=4.8.0", # 计算机视觉库
+    # Web界面
+    "gradio>=4.0.0", # Web界面框架
+    "fastapi>=0.100.0", # Web API框架
+    "uvicorn>=0.22.0", # ASGI服务器
+    # 数据处理
+    "numpy>=1.24.0", # 数值计算
+    "pandas>=2.0.0", # 数据分析
+    "requests>=2.31.0", # HTTP请求库
+    # 工具库
+    "click>=8.1.0", # 命令行界面
+    "tqdm>=4.65.0", # 进度条
+    "python-dotenv>=1.0.0", # 环境变量管理
+    "colorlog>=6.7.0", # 彩色日志输出
+    "python-multipart>=0.0.6", # 文件上传支持
+    "modelscope>=1.31.0",
+    "moviepy>=2.2.1",
+    "fonttools>=4.60.1",
+]
+
+# GPU支持说明：
+# PyTorch相关依赖已包含在主依赖中
+# 如需GPU加速，请按以下步骤操作：
+# 1. 访问 https://pytorch.org/get-started/locally/ 选择适合你的CUDA版本
+# 2. 先卸载CPU版本：pip uninstall torch torchvision torchaudio
+# 3. 安装GPU版本，例如CUDA 11.8：
+#    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# 4. 然后正常安装项目：pip install -e .
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",                   # 测试框架
+    "pytest-cov>=4.1.0",               # 测试覆盖率
+    "pytest-asyncio>=0.21.0",          # 异步测试支持
+    "black>=23.0.0",                   # 代码格式化
+    "isort>=5.12.0",                   # 导入排序
+    "flake8>=6.0.0",                   # 代码检查
+    "mypy>=1.4.0",                     # 类型检查
+    "pre-commit>=3.3.0",               # Git钩子
+    "ipython>=8.0.0",                  # 交互式Python
+    "jupyter>=1.0.0",                  # Jupyter笔记本
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/autovideo"
+Documentation = "https://github.com/yourusername/autovideo/docs"
+Repository = "https://github.com/yourusername/autovideo"
+Issues = "https://github.com/yourusername/autovideo/issues"
+
+[project.scripts]
+autovideo = "main:main"
+
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.setuptools.package-data]
+src = ["*.toml", "*.json"]
+
+# Black代码格式化配置
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | \.eggs
+  | \.tox
+  | build
+  | dist
+  | __pycache__
+)/
+'''
+
+# isort导入排序配置
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_gitignore = true
+
+# pytest测试配置
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=src --cov-report=html --cov-report=term-missing"
+
+# mypy类型检查配置
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_optional = true
+
+[[tool.mypy.overrides]]
+module = [
+    "whisper.*",
+    "edge_tts.*",
+    "sentence_transformers.*",
+]
+ignore_missing_imports = true

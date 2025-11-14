@@ -1,0 +1,483 @@
+"""
+MoviePy视频编辑器模块
+
+使用MoviePy作为视频处理后端的替代实现
+"""
+
+import shutil
+from pathlib import Path
+from typing import List, Dict, Any
+from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
+
+from ..core.logger import Logger
+from ..core.exceptions import VideoProcessingError
+from ..utils.moviepy_video_concat import MoviePyVideoConcatenator
+
+
+class MoviePyVideoEditor:
+    """MoviePy视频编辑器"""
+
+    def __init__(self, config: Dict[str, Any], logger: Logger = None):
+        """初始化MoviePy视频编辑器
+
+        Args:
+            config: 配置字典
+            logger: 日志记录器
+        """
+        self.logger = logger
+        self.config = config
+
+        # 修复：支持两种配置结构 - 直接传递或video段下
+        if 'video' in config:
+            video_config = config['video']
+        else:
+            video_config = config  # 兼容直接传递视频配置
+
+        self.resolution = tuple(video_config.get('resolution', [1920, 1080]))
+        self.fps = video_config.get('fps', 30)
+        self.codec = video_config.get('codec', 'libx264')
+        self.bitrate = video_config.get('bitrate', '2000k')
+        self.audio_codec = video_config.get('audio_codec', 'aac')
+        self.audio_bitrate = video_config.get('audio_bitrate', '128k')
+
+        # 修复：添加配置验证日志
+        if self.logger:
+            self.logger.info(f"MoviePy后端初始化完成")
+            self.logger.info(f"  接收到的配置结构: {list(config.keys())}")
+            self.logger.info(f"  解析出的video_config: {video_config}")
+            self.logger.info(f"  最终分辨率设置: {self.resolution}")
+            self.logger.info(f"  FPS: {self.fps}, 编码器: {self.codec}")
+
+        # 初始化MoviePy视频拼接器
+        self.moviepy_concat = MoviePyVideoConcatenator(logger)
+
+    def create_video(self, script: List[Dict], materials: List[str], output_path: str) -> str:
+        """创建视频（使用MoviePy实现）
+
+        Args:
+            script: 脚本段落列表
+            materials: 素材文件路径列表
+            output_path: 输出视频路径
+
+        Returns:
+            输出视频路径
+
+        Raises:
+            VideoProcessingError: 视频处理失败
+        """
+        if self.logger:
+            self.logger.info(f"开始使用MoviePy创建视频: {len(materials)}个素材 -> {output_path}")
+
+        try:
+            output_file = Path(output_path)
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # 处理视频片段（标准化处理）
+            processed_clips = []
+            for i, (material_path, scene_info) in enumerate(zip(materials, script)):
+                if not material_path or not Path(material_path).exists():
+                    if self.logger:
+                        self.logger.warning(f"素材文件不存在，跳过: {material_path}")
+                    continue
+
+                try:
+                    # 获取对应的场景时长信息
+                    duration = scene_info.get('duration', 5)
+
+                    # 生成临时处理文件路径
+                    temp_output = str(output_file.parent / f"temp_clip_{i}.mp4")
+
+                    # 处理素材（标准化格式、调整时长和分辨率）
+                    self.process_video_clip(material_path, duration, temp_output)
+
+                    # 验证临时文件是否有效生成
+                    if not Path(temp_output).exists():
+                        raise VideoProcessingError(f"临时文件未生成: {temp_output}")
+
+                    temp_file_size = Path(temp_output).stat().st_size
+                    if temp_file_size < 1000:
+                        raise VideoProcessingError(f"临时文件大小异常: {temp_file_size} bytes")
+
+                    processed_clips.append(temp_output)
+
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f"处理素材时出错，跳过: {material_path}, 错误: {e}")
+                    continue
+
+            if not processed_clips:
+                raise VideoProcessingError("没有有效的素材可以使用")
+
+            # 拼接视频片段
+            if len(processed_clips) == 1:
+                # 只有一个片段,直接复制到输出路径
+                shutil.copy2(processed_clips[0], str(output_file))
+            else:
+                # 多个片段,使用MoviePy拼接
+                if self.logger:
+                    self.logger.info(f"使用MoviePy拼接 {len(processed_clips)} 个视频片段")
+
+                self.moviepy_concat.concat_videos(
+                    processed_clips,
+                    str(output_file),
+                    method="compose"  # 自动处理不同尺寸
+                )
+
+            # 清理临时文件
+            for clip_path in processed_clips:
+                if Path(clip_path).exists():
+                    Path(clip_path).unlink()
+
+            if self.logger:
+                self.logger.info(f"视频创建完成: {output_path}")
+
+            return str(output_file)
+
+        except Exception as e:
+            error_msg = f"视频创建失败: {str(e)}"
+            if self.logger:
+                self.logger.error(error_msg)
+            raise VideoProcessingError(error_msg)
+
+    def process_video_clip(self, material_path: str, duration: float, output_path: str) -> str:
+        """处理单个视频片段（使用MoviePy实现）
+
+        Args:
+            material_path: 输入素材路径
+            duration: 目标时长(秒)
+            output_path: 输出路径
+
+        Returns:
+            输出视频路径
+        """
+        if self.logger:
+            self.logger.info(f"使用MoviePy处理视频片段: {material_path} -> {output_path}, 目标时长: {duration}s")
+
+        try:
+            output_file = Path(output_path)
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # 加载视频
+            clip = VideoFileClip(material_path)
+            #[debug] 输出视频原始信息
+            if self.logger:
+                self.logger.info(f"原视频时长: {clip.duration:.2f}s, 分辨率: {clip.size}, FPS: {clip.fps}")
+            
+            # 调整时长 - 使用更安全的方法
+            if clip.duration > duration:
+                # 截取视频开头部分
+                processed_clip = clip.subclipped(0, duration)
+            elif clip.duration < duration:
+                # 循环播放直到达到目标时长 - 使用concatenate_videoclips而不是with_duration
+                loops_needed = int(duration // clip.duration) + 1
+                clips_to_concat = [clip] * loops_needed
+                concatenated = concatenate_videoclips(clips_to_concat)
+                processed_clip = concatenated.subclipped(0, duration)
+                concatenated.close()
+            else:
+                # 时长正好匹配
+                processed_clip = clip
+
+            # 调整分辨率 - 修复：增强日志追踪
+            original_size = processed_clip.size
+            if processed_clip.size != self.resolution:
+                if self.logger:
+                    self.logger.info(f"调整分辨率: {original_size} -> {self.resolution}")
+                processed_clip = processed_clip.resized(self.resolution)
+                if self.logger:
+                    self.logger.info(f"分辨率调整完成: {processed_clip.size}")
+            else:
+                if self.logger:
+                    self.logger.info(f"分辨率无需调整: {processed_clip.size} == {self.resolution}")
+
+            #[debug] 输出处理后视频信息
+            if self.logger:
+                self.logger.info(f"处理后视频时长: {processed_clip.duration:.2f}s, 最终分辨率: {processed_clip.size}, FPS: {processed_clip.fps}")
+            # Logger.info("000000000000000000000000000000000")  # 修复：注释掉错误的调试代码
+            # 导出视频 - 修复参数冲突
+            # 检查原视频是否有音频轨道
+            original_clip = VideoFileClip(material_path)
+            has_audio = original_clip.audio is not None
+            original_clip.close()
+
+            if self.logger:
+                self.logger.info(f"原视频音频状态: {'有音频' if has_audio else '无音频'}")
+
+            # 根据是否有音频决定参数
+            try:
+                if has_audio:
+                    if self.logger:
+                        self.logger.info("使用带音频参数导出视频")
+                    processed_clip.write_videofile(
+                        str(output_file),
+                        codec=self.codec,
+                        audio_codec=self.audio_codec,
+                        fps=self.fps,
+                        bitrate=self.bitrate,
+                        logger=None if self.logger else None  # 避免日志冲突
+                    )
+                else:
+                    if self.logger:
+                        self.logger.info("使用无音频参数导出视频")
+                    processed_clip.write_videofile(
+                        str(output_file),
+                        codec=self.codec,
+                        fps=self.fps,
+                        bitrate=self.bitrate,
+                        audio=False,  # 只有在没有音频时才禁用
+                        logger=None if self.logger else None  # 避免日志冲突
+                    )
+            except Exception as export_error:
+                if self.logger:
+                    self.logger.error(f"MoviePy导出失败: {str(export_error)}")
+                raise VideoProcessingError(f"视频导出失败: {str(export_error)}")
+
+            # 验证输出文件
+            if not output_file.exists():
+                raise VideoProcessingError(f"视频文件未生成: {output_file}")
+
+            file_size = output_file.stat().st_size
+            if self.logger:
+                self.logger.info(f"生成的视频文件大小: {file_size} bytes")
+
+            if file_size < 1000:  # 小于1KB认为无效
+                # 添加更多调试信息
+                if self.logger:
+                    self.logger.error(f"文件大小异常，详细信息:")
+                    self.logger.error(f"  - 输出路径: {output_file}")
+                    self.logger.error(f"  - 文件是否存在: {output_file.exists()}")
+                    if output_file.exists():
+                        self.logger.error(f"  - 文件统计信息: {output_file.stat()}")
+                raise VideoProcessingError(f"生成的视频文件大小异常: {file_size} bytes")
+
+            # 清理资源
+            processed_clip.close()
+            clip.close()
+
+            if self.logger:
+                self.logger.info(f"视频片段处理完成: {output_path} ({file_size} bytes)")
+
+            return str(output_file)
+
+        except Exception as e:
+            error_msg = f"视频片段处理失败: {str(e)}"
+            if self.logger:
+                self.logger.error(error_msg)
+            # 确保清理资源
+            try:
+                if 'clip' in locals():
+                    clip.close()
+                if 'processed_clip' in locals():
+                    processed_clip.close()
+                if 'concatenated' in locals():
+                    concatenated.close()
+            except:
+                pass
+            raise VideoProcessingError(error_msg)
+
+    def merge_audio_video(self, video_path: str, audio_path: str, output_path: str,
+                         target_duration: float = None) -> str:
+        """合并音视频（使用MoviePy实现）
+
+        Args:
+            video_path: 视频文件路径
+            audio_path: 音频文件路径
+            output_path: 输出文件路径
+            target_duration: 目标时长(秒)，如果指定则会调整视频长度
+
+        Returns:
+            输出文件路径
+        """
+        if self.logger:
+            self.logger.info(f"使用MoviePy合并音视频: {video_path} + {audio_path} -> {output_path}")
+
+        try:
+            output_file = Path(output_path)
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # 加载视频和音频
+            with VideoFileClip(video_path) as video_clip, AudioFileClip(audio_path) as audio_clip:
+                # 如果指定了目标时长，调整视频长度
+                if target_duration:
+                    if video_clip.duration > target_duration:
+                        video_clip = video_clip.subclipped(0, target_duration)
+                    elif video_clip.duration < target_duration:
+                        # 循环视频直到达到目标时长
+                        loops_needed = int(target_duration // video_clip.duration) + 1
+                        clips_to_concat = [video_clip] * loops_needed
+                        temp_clip = concatenate_videoclips(clips_to_concat)
+                        video_clip = temp_clip.subclipped(0, target_duration)
+
+                # 设置音频
+                final_clip = video_clip.with_audio(audio_clip)
+
+                # 导出最终视频
+                final_clip.write_videofile(
+                    str(output_file),
+                    codec=self.codec,
+                    audio_codec=self.audio_codec,
+                    fps=self.fps,
+                    bitrate=self.bitrate,
+                    temp_audiofile=str(output_file) + "_temp_audio.m4a",
+                    remove_temp=True
+                )
+
+            if self.logger:
+                self.logger.info(f"音视频合并完成: {output_path}")
+
+            return str(output_file)
+
+        except Exception as e:
+            error_msg = f"音视频合并失败: {str(e)}"
+            if self.logger:
+                self.logger.error(error_msg)
+            raise VideoProcessingError(error_msg)
+
+    def concat_videos(self, video_paths: List[str], output_path: str, **kwargs) -> str:
+        """拼接视频片段（使用MoviePy实现）
+
+        Args:
+            video_paths: 视频文件路径列表
+            output_path: 输出视频路径
+            **kwargs: 额外参数
+
+        Returns:
+            输出视频路径
+        """
+        if self.logger:
+            self.logger.info(f"使用MoviePy拼接视频: {len(video_paths)}个片段 -> {output_path}")
+
+        try:
+            output_file = Path(output_path)
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # 加载所有视频片段（使用更健壮的方法）
+            clips = []
+            valid_video_paths = []
+            for video_path in video_paths:
+                if not Path(video_path).exists():
+                    if self.logger:
+                        self.logger.warning(f"视频文件不存在，跳过: {video_path}")
+                    continue
+
+                try:
+                    # 尝试加载视频
+                    clip = VideoFileClip(video_path)
+                    if clip.duration > 0:  # 确保视频有有效时长
+                        clips.append(clip)
+                        valid_video_paths.append(video_path)
+                    else:
+                        if self.logger:
+                            self.logger.warning(f"视频时长为0，跳过: {video_path}")
+                        clip.close()
+                except Exception as e:
+                    if self.logger:
+                        self.logger.warning(f"无法加载视频文件，跳过: {video_path}, 错误: {e}")
+                    # 继续处理其他视频
+
+            if not clips:
+                # 如果没有有效的视频片段，尝试复制第一个有效的视频文件（如果有）
+                for video_path in video_paths:
+                    if Path(video_path).exists():
+                        shutil.copy2(video_path, output_path)
+                        if self.logger:
+                            self.logger.info(f"没有有效的视频片段，复制第一个文件: {video_path} -> {output_path}")
+                        return str(output_path)
+
+                raise VideoProcessingError("没有有效的视频片段可以拼接")
+
+            # 拼接视频
+            if len(clips) == 1:
+                # 只有一个片段，直接复制
+                clips[0].close()
+                shutil.copy2(valid_video_paths[0], output_path)
+            else:
+                # 多个片段，使用MoviePy拼接
+                try:
+                    final_clip = concatenate_videoclips(clips, method="compose")
+
+                    # 导出视频
+                    final_clip.write_videofile(
+                        str(output_file),
+                        codec=self.codec,
+                        audio_codec=self.audio_codec,
+                        fps=self.fps,
+                        bitrate=self.bitrate
+                    )
+
+                    # 清理内存
+                    final_clip.close()
+                except Exception as e:
+                    # 清理已加载的clips
+                    for clip in clips:
+                        try:
+                            clip.close()
+                        except:
+                            pass
+                    raise e
+
+                # 清理所有clips
+                for clip in clips:
+                    try:
+                        clip.close()
+                    except:
+                        pass
+
+            if self.logger:
+                self.logger.info(f"视频拼接完成: {output_path}")
+
+            return str(output_path)
+
+        except Exception as e:
+            error_msg = f"视频拼接失败: {str(e)}"
+            if self.logger:
+                self.logger.error(error_msg)
+            raise VideoProcessingError(error_msg)
+
+    def cut_video(self, input_path: str, output_path: str, start_time: float, duration: float, **kwargs) -> str:
+        """截取视频片段（使用MoviePy实现）
+
+        Args:
+            input_path: 输入视频路径
+            output_path: 输出视频路径
+            start_time: 开始时间（秒）
+            duration: 持续时间（秒）
+            **kwargs: 额外参数
+
+        Returns:
+            输出视频路径
+        """
+        if self.logger:
+            self.logger.info(f"使用MoviePy截取视频: {input_path} -> {output_path}, 开始: {start_time}s, 时长: {duration}s")
+
+        try:
+            output_file = Path(output_path)
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # 加载视频并截取
+            with VideoFileClip(input_path) as clip:
+                end_time = start_time + duration
+                if end_time > clip.duration:
+                    end_time = clip.duration
+
+                cut_clip = clip.subclipped(start_time, end_time)
+
+                # 导出视频
+                cut_clip.write_videofile(
+                    str(output_file),
+                    codec=self.codec,
+                    audio_codec=self.audio_codec,
+                    fps=self.fps,
+                    bitrate=self.bitrate
+                )
+
+            if self.logger:
+                self.logger.info(f"视频截取完成: {output_path}")
+
+            return str(output_path)
+
+        except Exception as e:
+            error_msg = f"视频截取失败: {str(e)}"
+            if self.logger:
+                self.logger.error(error_msg)
+            raise VideoProcessingError(error_msg)

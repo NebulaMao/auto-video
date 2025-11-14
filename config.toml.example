@@ -1,0 +1,534 @@
+# ============================================================================
+# AutoVideo 配置文件示例
+# ============================================================================
+# 这是AutoVideo的配置文件示例，包含了所有可用的配置项和详细说明
+# 
+# 使用方法：
+# 1. 复制此文件并重命名为 config.toml
+#    Windows: copy config.toml.example config.toml
+#    macOS/Linux: cp config.toml.example config.toml
+# 2. 根据你的实际情况修改配置项（特别是API密钥）
+# 3. 保存文件后运行程序
+#
+# 注意：
+# - 带有 ⚠️ 标记的配置项是必须填写的
+# - 其他配置项如果不修改，将使用默认值
+# ============================================================================
+
+# ==================== 应用程序基本配置 ====================
+[app]
+# 应用名称
+name = "AutoVideo"
+
+# 应用版本号
+version = "0.1.0"
+
+# 调试模式开关
+# true: 启用详细的调试日志，便于排查问题
+# false: 只输出必要的信息（生产环境推荐）
+debug = false
+
+# 界面语言设置
+# 可选值: "zh-CN"(简体中文), "en-US"(英语)
+language = "zh-CN"
+
+
+# ==================== DeepSeek LLM配置 ====================
+# DeepSeek是用于生成视频脚本的大语言模型
+# 获取API密钥：https://platform.deepseek.com
+[llm]
+# ⚠️ 必填：你的DeepSeek API密钥
+# 请替换为你自己的API密钥！
+# 申请地址：https://platform.deepseek.com/api_keys
+api_key = "your-deepseek-api-key-here"
+
+# DeepSeek API基础URL（通常不需要修改）
+base_url = "https://api.deepseek.com"
+
+# 使用的模型名称
+# 可选值: "deepseek-chat", "deepseek-coder"
+# deepseek-chat: 通用对话模型（推荐）
+# deepseek-coder: 代码生成模型
+model = "deepseek-chat"
+
+# 最大生成token数
+# 范围: 1-8000
+# 说明: 数值越大，生成的内容越长，但消耗的token也越多
+max_tokens = 4000
+
+# 生成温度（控制创意性）
+# 范围: 0.0-1.0
+# 0.0: 更确定、更保守的输出
+# 0.7: 平衡的创意性（推荐）
+# 1.0: 更有创意、更随机的输出
+temperature = 0.7
+
+# API请求超时时间（秒）
+# 如果网络较慢，可以适当增加此值
+timeout = 30
+
+
+# ==================== TTS语音合成配置 ====================
+# TTS将文本转换为语音，用于生成视频的旁白
+[tts]
+# TTS引擎选择
+# 可选值:
+#   - "edge-tts": 微软Edge TTS（推荐，质量高，需要网络）
+#   - "pyttsx3": 离线TTS（无需网络，但质量较低）
+#   - "azure-tts": Azure TTS（需要Azure账号和密钥）
+engine = "edge-tts"
+
+# 语音名称（音色）
+# Edge-TTS中文语音选项：
+#   - "zh-CN-XiaoxiaoNeural": 温柔女声（推荐）
+#   - "zh-CN-YunxiNeural": 平和男声
+#   - "zh-CN-YunyangNeural": 专业男声
+#   - "zh-CN-XiaoyiNeural": 活泼女声
+#   - "zh-CN-YunjianNeural": 新闻男声
+#   - "zh-CN-XiaochenNeural": 温暖女声
+# 
+# 查看所有可用语音：
+# python -c "import edge_tts; import asyncio; asyncio.run(edge_tts.list_voices())"
+voice = "zh-CN-XiaoxiaoNeural"
+
+# 语速倍率
+# 范围: 0.5-2.0
+# 0.5: 慢速（适合教学视频）
+# 1.0: 正常速度（推荐）
+# 1.5: 快速
+# 2.0: 很快
+rate = 1.0
+
+# 音量倍率
+# 范围: 0.0-2.0
+# 0.0: 静音
+# 1.0: 正常音量（推荐）
+# 2.0: 最大音量
+volume = 1.0
+
+# 音调偏移（Hz）
+# 范围: -100到100
+# 负值: 降低音调
+# 0: 不调整（推荐）
+# 正值: 提高音调
+pitch = 0
+
+
+# ==================== Whisper语音识别配置 ====================
+# Whisper用于语音识别，生成字幕和时间戳
+[whisper]
+# Whisper模型大小
+# 可选值: "tiny", "base", "small", "medium", "large"
+# 模型越大，准确度越高，但速度越慢，内存占用越大
+# 
+# 推荐选择：
+#   - tiny: 快速测试，准确度较低（~1GB内存）
+#   - base: 平衡选择，适合大多数情况（~1GB内存）⭐推荐
+#   - small: 较高准确度（~2GB内存）
+#   - medium: 高准确度（~5GB内存）
+#   - large: 最高准确度（~10GB内存）
+model_size = "base"
+
+# 识别语言
+# 可选值: "zh"(中文), "en"(英语), "auto"(自动检测)
+# 指定语言可以提高准确度和速度
+language = "zh"
+
+# 计算设备
+# 可选值:
+#   - "auto": 自动选择（有GPU用GPU，没有用CPU）⭐推荐
+#   - "cpu": 强制使用CPU
+#   - "cuda": 强制使用NVIDIA GPU（需要安装CUDA）
+device = "auto"
+
+
+# ==================== 视频处理配置 ====================
+[video]
+# 视频后端选择
+# 可选值:
+#   - "ffmpeg": 使用FFmpeg作为视频处理后端（传统方式）
+#   - "moviepy": 使用MoviePy作为视频处理后端（新推荐方式）
+#
+# 推荐使用"moviepy"来避免FFmpeg路径和格式问题
+backend = "moviepy"
+
+# 视频分辨率 [宽度, 高度]
+# 常用分辨率：
+#   - [1280, 720]: 720p（快速，文件小）
+#   - [1920, 1080]: 1080p（推荐，高清）⭐
+#   - [2560, 1440]: 2K（高质量）
+#   - [3840, 2160]: 4K（超高清，慢）
+resolution = [1920, 1080]
+
+# 帧率（每秒帧数）
+# 常用值:
+#   - 24: 电影标准
+#   - 30: 标准视频（推荐）⭐
+#   - 60: 高帧率（流畅，文件大）
+fps = 30
+
+# 视频编码器
+# 可选值:
+#   - "libx264": H.264编码（推荐，兼容性好）⭐
+#   - "libx265": H.265/HEVC编码（文件小，编码慢）
+#   - "mpeg4": MPEG-4编码（兼容性好，质量一般）
+codec = "libx264"
+
+# 视频比特率
+# 影响视频质量和文件大小
+# 推荐值（1080p）:
+#   - "1000k": 低质量，小文件
+#   - "2000k": 标准质量（推荐）⭐
+#   - "5000k": 高质量
+#   - "10000k": 超高质量
+bitrate = "2000k"
+
+# 音频编码器
+# 可选值:
+#   - "aac": AAC编码（推荐）⭐
+#   - "mp3": MP3编码
+#   - "libvorbis": Vorbis编码
+audio_codec = "aac"
+
+# 音频比特率
+# 推荐值:
+#   - "64k": 低质量
+#   - "128k": 标准质量（推荐）⭐
+#   - "192k": 高质量
+#   - "320k": 超高质量
+audio_bitrate = "128k"
+
+# 输出视频格式
+# 可选值: "mp4", "avi", "mov", "mkv"
+# mp4: 最佳兼容性（推荐）⭐
+format = "mp4"
+
+
+# ==================== 字幕样式配置 ====================
+# 配置视频字幕的外观和位置
+[subtitle]
+# 字体名称
+# Windows常用中文字体:
+#   - "SimHei": 黑体（推荐）⭐
+#   - "Microsoft YaHei": 微软雅黑
+#   - "SimSun": 宋体
+#   - "KaiTi": 楷体
+# 
+# macOS常用中文字体:
+#   - "PingFang SC": 苹方
+#   - "STHeiti": 黑体
+#   - "STSong": 宋体
+# 
+# 注意：字体必须已安装在系统中
+font_family = "SimHei"
+
+# 字体大小（像素）
+# 推荐值（1080p视频）:
+#   - 30: 小字体
+#   - 36: 标准字体（推荐）⭐
+#   - 48: 大字体
+#   - 60: 超大字体
+font_size = 36
+
+# 字体颜色（十六进制颜色码）
+# 常用颜色:
+#   - "#FFFFFF": 白色（推荐）⭐
+#   - "#FFFF00": 黄色
+#   - "#FF0000": 红色
+#   - "#00FF00": 绿色
+font_color = "#FFFFFF"
+
+# 背景颜色
+# 常用颜色:
+#   - "#000000": 黑色（推荐）⭐
+#   - "#FFFFFF": 白色
+#   - "transparent": 透明（不推荐，可读性差）
+background_color = "#000000"
+
+# 背景透明度
+# 范围: 0.0-1.0
+#   - 0.0: 完全透明
+#   - 0.5: 半透明
+#   - 0.7: 较不透明（推荐）⭐
+#   - 1.0: 完全不透明
+background_alpha = 0.7
+
+# 字幕位置
+# 可选值:
+#   - "top": 顶部
+#   - "center": 中间
+#   - "bottom": 底部（推荐）⭐
+position = "bottom"
+
+# 边距（像素）
+# 字幕距离屏幕边缘的距离
+# 推荐值: 30-100
+margin = 50
+
+# 文字对齐方式
+# 可选值:
+#   - "left": 左对齐
+#   - "center": 居中对齐（推荐）⭐
+#   - "right": 右对齐
+alignment = "center"
+
+# 描边颜色
+# 用于增强字幕可读性
+# 推荐: 与字体颜色形成对比
+#   - 白色字体 → 黑色描边 ⭐
+#   - 黑色字体 → 白色描边
+outline_color = "#000000"
+
+# 描边宽度（像素）
+# 推荐值:
+#   - 0: 无描边
+#   - 2: 标准描边（推荐）⭐
+#   - 3-5: 粗描边
+outline_width = 2
+
+# 最大宽度比例
+# 范围: 0.0-1.0
+# 字幕占屏幕宽度的最大比例
+# 0.8: 占80%宽度（推荐）⭐
+# 0.9: 占90%宽度
+max_width = 0.8
+
+
+# ==================== 路径配置 ====================
+# 配置各种文件和目录的存储位置
+[paths]
+# 素材库目录
+# 存放视频、图片、音频等素材文件
+# 支持相对路径和绝对路径
+materials_dir = "./data/materials"
+
+# 输出目录
+# 生成的最终视频将保存在此目录
+output_dir = "./data/output"
+
+# 临时文件目录
+# 存放处理过程中的临时文件
+# 建议定期清理此目录
+temp_dir = "./data/temp"
+
+# 字体文件目录
+# 存放自定义字体文件（.ttf, .otf等）
+fonts_dir = "./assets/fonts"
+
+# 视频模板目录
+# 存放视频模板文件
+templates_dir = "./assets/templates"
+
+
+# ==================== 日志配置 ====================
+# 配置日志记录行为
+[logging]
+# 日志级别
+# 可选值（从少到多）:
+#   - "CRITICAL": 只记录严重错误
+#   - "ERROR": 记录错误
+#   - "WARNING": 记录警告
+#   - "INFO": 记录一般信息（推荐）⭐
+#   - "DEBUG": 记录详细调试信息（开发时使用）
+level = "INFO"
+
+# 日志格式
+# 变量说明:
+#   - %(asctime)s: 时间戳
+#   - %(name)s: 日志记录器名称
+#   - %(levelname)s: 日志级别
+#   - %(message)s: 日志消息
+format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# 日志文件路径
+# 日志将同时输出到控制台和此文件
+file = "./logs/autovideo.log"
+
+# 单个日志文件最大大小
+# 超过此大小后会自动创建新文件
+# 可选单位: KB, MB, GB
+max_size = "10MB"
+
+# 保留的日志文件数量
+# 旧的日志文件会自动删除，只保留最新的N个
+backup_count = 5
+
+
+# ==================== 视频时长控制配置 ====================
+# 配置视频生成时长的相关参数
+[duration_control]
+# 默认视频时长（秒）
+# 用户可以在界面中调整此值
+default_duration = 60
+
+# 最小允许时长（秒）
+# 防止用户设置过短的视频时长
+min_duration = 10
+
+# 最大允许时长（秒）
+# 防止用户设置过长的视频时长
+max_duration = 600
+
+# 时长调整步长（秒）
+# 界面滑块的最小变化单位
+step_size = 5
+
+# 每个场景的平均时长（秒）
+# 用于计算需要多少个场景来填充指定时长
+avg_scene_duration = 18
+
+# 语速配置（字/分钟）
+# 用于根据时长生成合适长度的口播文案
+# 正常语速: 200-240字/分钟
+speech_rate = 240
+
+# ==================== 随机素材选择配置 ====================
+# 配置随机素材选择的行为（替代语义搜索）
+[random_material_selector]
+# 每个场景需要的素材数量
+# 通常每个场景1个素材即可
+materials_per_scene = 1
+
+# 视频素材优先级
+# true: 优先选择视频素材，不足时用图片补充
+# false: 混合选择视频和图片素材
+video_priority = true
+
+# 素材库目录
+# 存放视频、图片、音频等素材文件
+materials_dir = "./data/materials"
+
+# 支持的素材格式
+# 只有这些格式的文件会被索引
+# 视频格式: .mp4, .avi, .mov, .mkv
+# 图片格式: .jpg, .jpeg, .png, .gif, .bmp
+supported_formats = [
+    ".mp4", ".avi", ".mov", ".mkv",  # 视频
+    ".jpg", ".jpeg", ".png", ".gif",  # 图片
+]
+
+# 每个素材的最短使用时长（秒）
+# 如果素材时长不足，会进行循环或截取
+min_material_usage = 5
+
+# 素材重复使用策略
+# 当素材数量不足时，是否允许重复使用素材
+allow_reuse = true
+
+# ==================== 素材检索配置 ====================
+# 配置智能素材匹配的行为（已废弃，保留用于向后兼容）
+[material_search]
+# 语义相似度阈值
+# 范围: 0.0-1.0
+# 只有相似度超过此阈值的素材才会被选择
+# 推荐值:
+#   - 0.5: 宽松匹配（更多素材）
+#   - 0.7: 平衡匹配（推荐）⭐
+#   - 0.85: 严格匹配（更精确）
+semantic_similarity_threshold = 0.7
+
+# 最大返回结果数
+# 每次搜索最多返回多少个素材
+# 推荐值: 5-20
+max_results = 10
+
+# 支持的素材格式
+# 只有这些格式的文件会被索引和搜索
+# 视频格式: .mp4, .avi, .mov, .mkv, .flv
+# 图片格式: .jpg, .jpeg, .png, .gif, .bmp
+# 音频格式: .mp3, .wav, .aac, .flac
+supported_formats = [
+    ".mp4", ".avi", ".mov", ".mkv",  # 视频
+    ".jpg", ".jpeg", ".png", ".gif",  # 图片
+    ".mp3", ".wav", ".aac"            # 音频
+]
+
+# 语义匹配模型
+# 用于计算文本和素材的语义相似度
+# 推荐模型（中文支持）:
+#   - "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2": 快速，准确 ⭐
+#   - "sentence-transformers/distiluse-base-multilingual-cased-v2": 准确，稍慢
+#
+# 注意：首次使用时会自动下载模型（约400MB）
+embedding_model = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
+# 状态标记: 此配置已废弃
+# ⚠️ 注意：语义搜索功能已被随机素材选择替代
+deprecated = true
+
+
+# ==================== Gradio界面配置 ====================
+# 配置Web用户界面的外观和行为
+[ui]
+# 界面标题
+# 显示在浏览器标签页和页面顶部
+title = "AutoVideo - 自动化宣传视频生成系统"
+
+# 界面描述
+# 显示在页面顶部，简要说明功能
+description = "基于AI技术的自动化宣传视频生成工具"
+
+# 界面主题
+# 可选值:
+#   - "default": 默认主题 ⭐
+#   - "soft": 柔和主题
+#   - "glass": 玻璃主题
+#   - "monochrome": 单色主题
+# 
+# 也可以自定义主题，详见Gradio文档
+theme = "default"
+
+# 是否生成公共分享链接
+# true: 生成一个可以从互联网访问的临时链接（72小时有效）
+# false: 只能在本地网络访问（更安全）⭐
+share = false
+
+# 服务端口
+# Web界面监听的端口号
+# 默认: 7860
+# 如果端口被占用，会自动尝试下一个端口
+server_port = 7860
+
+# 服务地址
+# 可选值:
+#   - "127.0.0.1": 只允许本机访问（推荐）⭐
+#   - "0.0.0.0": 允许局域网内其他设备访问
+#   - "localhost": 等同于127.0.0.1
+# 
+# 安全提示：
+# 如果设置为0.0.0.0，请确保你的防火墙设置正确！
+server_name = "127.0.0.1"
+
+
+# ============================================================================
+# 配置完成！
+# ============================================================================
+# 
+# 常见配置场景：
+# 
+# 1. 快速开始（最小配置）：
+#    只需要修改：[llm] api_key
+# 
+# 2. 高质量视频：
+#    [video] resolution = [1920, 1080]
+#    [video] bitrate = "5000k"
+#    [whisper] model_size = "medium"
+# 
+# 3. 快速处理：
+#    [video] resolution = [1280, 720]
+#    [whisper] model_size = "tiny"
+#    [video] fps = 24
+# 
+# 4. 离线使用：
+#    [tts] engine = "pyttsx3"
+#    （但仍需要网络下载Whisper模型和LLM调用）
+# 
+# 5. 允许局域网访问：
+#    [ui] server_name = "0.0.0.0"
+# 
+# 遇到问题？
+# 1. 查看日志文件：./logs/autovideo.log
+# 2. 阅读文档：README.md 和 docs/QUICKSTART.md
+# 3. 提交Issue：https://github.com/yourusername/autovideo/issues
+# 
+# ============================================================================
