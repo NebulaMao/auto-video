@@ -13,6 +13,7 @@ import json
 from ..core.exceptions import TTSError
 from ..core.logger import Logger
 from ..utils.text_utils import clean_xml_tags, has_xml_color_tags
+from .siliconflow_tts import SiliconFlowTTS
 
 
 class TTSEngine:
@@ -23,20 +24,30 @@ class TTSEngine:
     
     def __init__(self, config: Dict[str, Any], logger: Logger = None):
         """初始化TTS引擎
-        
+
         Args:
             config: TTS配置字典
             logger: 日志记录器
         """
         self.config = config
         self.logger = logger
-        
+
         self.engine = config.get('engine', 'edge-tts')
         self.voice = config.get('voice', 'zh-CN-XiaoxiaoNeural')
         self.rate = config.get('rate', 1.0)
         self.volume = config.get('volume', 1.0)
         self.pitch = config.get('pitch', 0)
-        
+
+        # 初始化具体的TTS引擎
+        self.siliconflow_engine = None
+        if self.engine == 'siliconflow':
+            try:
+                self.siliconflow_engine = SiliconFlowTTS(config, logger)
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"SiliconFlow TTS 引擎初始化失败: {str(e)}")
+                raise TTSError(f"SiliconFlow TTS 引擎初始化失败: {str(e)}")
+
         if self.logger:
             self.logger.info(f"TTS引擎初始化完成,使用引擎: {self.engine}, 语音: {self.voice}")
     
@@ -67,6 +78,11 @@ class TTSEngine:
         try:
             if self.engine == 'edge-tts':
                 return self._synthesize_edge_tts(clean_text, output_path, **kwargs)
+            elif self.engine == 'siliconflow':
+                if self.siliconflow_engine:
+                    return self.siliconflow_engine.synthesize(clean_text, output_path, **kwargs)
+                else:
+                    raise TTSError("SiliconFlow TTS 引擎未初始化")
             else:
                 raise TTSError(f"不支持的TTS引擎: {self.engine}")
 
@@ -123,12 +139,17 @@ class TTSEngine:
     
     def get_available_voices(self) -> List[Dict[str, str]]:
         """获取可用的语音列表
-        
+
         Returns:
             语音列表,每个语音包含名称、语言等信息
         """
         if self.engine == 'edge-tts':
             return self._get_edge_tts_voices()
+        elif self.engine == 'siliconflow':
+            if self.siliconflow_engine:
+                return self.siliconflow_engine.get_available_voices()
+            else:
+                return []
         else:
             return []
     
@@ -165,11 +186,14 @@ class TTSEngine:
     
     def set_voice(self, voice: str) -> None:
         """设置语音
-        
+
         Args:
             voice: 语音名称
         """
         self.voice = voice
+        if self.engine == 'siliconflow' and self.siliconflow_engine:
+            self.siliconflow_engine.set_voice(voice)
+
         if self.logger:
             self.logger.info(f"语音已设置为: {voice}")
     
@@ -251,15 +275,15 @@ class TTSEngine:
     
     def synthesize_segments(self, text_segments: List[str], output_dir: str, **kwargs) -> List[Dict[str, Any]]:
         """分段合成语音
-        
+
         Args:
             text_segments: 文本段落列表
             output_dir: 输出目录
             **kwargs: 额外的合成参数
-            
+
         Returns:
             每段音频的信息列表，包含文件路径和时长
-            
+
         Raises:
             TTSError: 语音合成失败时抛出
         """
@@ -267,14 +291,18 @@ class TTSEngine:
         print(f"[DEBUG] synthesize_segments: 开始分段语音合成，共 {len(text_segments)} 个段落")
         total_input_chars = sum(len(seg) for seg in text_segments)
         print(f"[DEBUG] synthesize_segments: 输入文本总字符数={total_input_chars}")
-        
+
+        if self.engine == 'siliconflow' and self.siliconflow_engine:
+            # 使用 SiliconFlow 的分段合成
+            return self.siliconflow_engine.synthesize_segments(text_segments, output_dir, **kwargs)
+
         if self.logger:
             self.logger.info(f"开始分段语音合成,共 {len(text_segments)} 个段落")
-        
+
         segments_info = []
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-        
+
         try:
             for i, segment in enumerate(text_segments):
                 print(f"[DEBUG] synthesize_segments: 处理段落 {i+1}/{len(text_segments)}")
@@ -308,7 +336,7 @@ class TTSEngine:
                 except Exception as e:
                     print(f"[DEBUG] synthesize_segments: 段落 {i+1} 语音合成失败: {str(e)}")
                     raise
-                
+
                 # 获取音频时长
                 print(f"[DEBUG] synthesize_segments: 获取段落 {i+1} 音频时长")
                 try:
@@ -317,7 +345,7 @@ class TTSEngine:
                 except Exception as e:
                     print(f"[DEBUG] synthesize_segments: 获取段落 {i+1} 音频时长失败: {str(e)}")
                     raise
-                
+
                 segments_info.append({
                     'index': i,
                     'text': clean_segment,  # 使用清理后的文本
@@ -325,10 +353,10 @@ class TTSEngine:
                     'audio_path': str(segment_audio_path),
                     'duration': duration
                 })
-                
+
                 if self.logger:
                     self.logger.info(f"段落 {i+1} 合成完成,时长: {duration:.2f}秒")
-            
+
             # 统计最终结果
             total_duration = sum(seg['duration'] for seg in segments_info)
             total_output_chars = sum(len(seg['text']) for seg in segments_info)
@@ -336,18 +364,62 @@ class TTSEngine:
             print(f"[DEBUG] synthesize_segments: 成功合成 {len(segments_info)} 个段落")
             print(f"[DEBUG] synthesize_segments: 输出文本总字符数={total_output_chars}")
             print(f"[DEBUG] synthesize_segments: 总音频时长={total_duration:.2f}秒")
-            
+
             if total_output_chars < total_input_chars * 0.9:
                 print(f"[DEBUG] synthesize_segments: 警告！输出文本字符数({total_output_chars})明显少于输入({total_input_chars})")
-            
+
             if self.logger:
                 self.logger.info(f"分段语音合成完成,总时长: {total_duration:.2f}秒")
-            
+
             return segments_info
-            
+
         except Exception as e:
             error_msg = f"分段语音合成失败: {str(e)}"
             print(f"[DEBUG] synthesize_segments: 异常 - {error_msg}")
             if self.logger:
                 self.logger.error(error_msg)
             raise TTSError(error_msg)
+
+    def get_available_models(self) -> List[Dict[str, str]]:
+        """获取可用的模型列表（仅 SiliconFlow 支持）
+
+        Returns:
+            模型列表
+        """
+        if self.engine == 'siliconflow' and self.siliconflow_engine:
+            return self.siliconflow_engine.get_available_models()
+        else:
+            return []
+
+    def set_model(self, model: str) -> None:
+        """设置模型（仅 SiliconFlow 支持）
+
+        Args:
+            model: 模型名称
+        """
+        if self.engine == 'siliconflow' and self.siliconflow_engine:
+            self.siliconflow_engine.set_model(model)
+            if self.logger:
+                self.logger.info(f"SiliconFlow TTS 模型已设置为: {model}")
+
+    def set_gain(self, gain: float) -> None:
+        """设置音量增益（仅 SiliconFlow 支持）
+
+        Args:
+            gain: 音量增益(-10到10)
+        """
+        if self.engine == 'siliconflow' and self.siliconflow_engine:
+            self.siliconflow_engine.set_gain(gain)
+            if self.logger:
+                self.logger.info(f"SiliconFlow TTS 音量增益已设置为: {gain}")
+
+    def test_connection(self) -> bool:
+        """测试 API 连接（仅 SiliconFlow 支持）
+
+        Returns:
+            连接是否成功
+        """
+        if self.engine == 'siliconflow' and self.siliconflow_engine:
+            return self.siliconflow_engine.test_connection()
+        else:
+            return True  # Edge TTS 不需要连接测试

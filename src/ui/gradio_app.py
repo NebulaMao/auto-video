@@ -51,6 +51,13 @@ class GradioApp:
         self.tts_engine = None
         self.video_editor = None
         self.subtitle_renderer = None
+
+        # 初始化 TTS 引擎
+        tts_config = config_manager.get_section('tts')
+        if tts_config.get('engine') == 'siliconflow':
+            siliconflow_config = config_manager.get_section('siliconflow_tts')
+            tts_config.update(siliconflow_config)
+        self.tts_engine = TTSEngine(tts_config, logger)
         
         if self.logger:
             self.logger.info("Gradio应用初始化完成")
@@ -204,13 +211,72 @@ class GradioApp:
         with gr.Accordion("TTS配置", open=False):
             tts_engine = gr.Dropdown(
                 label="TTS引擎",
-                choices=["edge-tts", "pyttsx3"],
+                choices=["edge-tts", "siliconflow"],
                 value="edge-tts"
             )
-            tts_voice = gr.Textbox(
-                label="语音名称",
-                value="zh-CN-XiaoxiaoNeural"
-            )
+
+            with gr.Group(visible=False) as siliconflow_group:
+                siliconflow_api_key = gr.Textbox(
+                    label="SiliconFlow API Key",
+                    type="password",
+                    placeholder="输入SiliconFlow API密钥"
+                )
+                siliconflow_model = gr.Dropdown(
+                    label="TTS模型",
+                    choices=["fnlp/MOSS-TTSD-v0.5"],
+                    value="fnlp/MOSS-TTSD-v0.5"
+                )
+                siliconflow_voice = gr.Dropdown(
+                    label="SiliconFlow 语音",
+                    choices=[
+                        ("Alex (男声)", "fnlp/MOSS-TTSD-v0.5:alex"),
+                        ("Emma (女声)", "fnlp/MOSS-TTSD-v0.5:emma"),
+                        ("Brian (英文男声)", "fnlp/MOSS-TTSD-v0.5:brian"),
+                        ("Alice (英文女声)", "fnlp/MOSS-TTSD-v0.5:alice")
+                    ],
+                    value="fnlp/MOSS-TTSD-v0.5:alex"
+                )
+                siliconflow_speed = gr.Slider(
+                    label="语速",
+                    minimum=0.25,
+                    maximum=4.0,
+                    value=1.0,
+                    step=0.1
+                )
+                siliconflow_gain = gr.Slider(
+                    label="音量增益",
+                    minimum=-10,
+                    maximum=10,
+                    value=0,
+                    step=0.5
+                )
+
+            with gr.Group(visible=True) as edge_tts_group:
+                tts_voice = gr.Textbox(
+                    label="语音名称",
+                    value="zh-CN-XiaoxiaoNeural"
+                )
+                tts_rate = gr.Slider(
+                    label="语速",
+                    minimum=0.5,
+                    maximum=2.0,
+                    value=1.0,
+                    step=0.1
+                )
+                tts_volume = gr.Slider(
+                    label="音量",
+                    minimum=0.0,
+                    maximum=2.0,
+                    value=1.0,
+                    step=0.1
+                )
+                tts_pitch = gr.Slider(
+                    label="音调",
+                    minimum=-100,
+                    maximum=100,
+                    value=0,
+                    step=1
+                )
         
         with gr.Accordion("视频配置", open=False):
             video_resolution = gr.Dropdown(
@@ -229,6 +295,25 @@ class GradioApp:
         save_config_btn = gr.Button("保存配置", variant="primary")
         config_status = gr.Textbox(label="状态", value="", interactive=False)
         
+        # 绑定TTS引擎切换事件
+        def update_tts_interface(engine_choice):
+            if engine_choice == "siliconflow":
+                return {
+                    siliconflow_group: gr.Group(visible=True),
+                    edge_tts_group: gr.Group(visible=False)
+                }
+            else:
+                return {
+                    siliconflow_group: gr.Group(visible=False),
+                    edge_tts_group: gr.Group(visible=True)
+                }
+
+        tts_engine.change(
+            fn=update_tts_interface,
+            inputs=[tts_engine],
+            outputs=[siliconflow_group, edge_tts_group]
+        )
+
         # 绑定保存配置事件
         save_config_btn.click(
             fn=lambda: "配置保存功能待实现",

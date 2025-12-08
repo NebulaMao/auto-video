@@ -69,6 +69,11 @@ class WorkflowManager:
             
             # TTS引擎
             tts_config = config_manager.get_section('tts')
+            # 如果使用 SiliconFlow，合并配置
+            if tts_config.get('engine') == 'siliconflow':
+                siliconflow_config = config_manager.get_section('siliconflow_tts')
+                tts_config.update(siliconflow_config)
+
             self.tts_engine = TTSEngine(tts_config, self.logger)
             
             # 视频编辑器

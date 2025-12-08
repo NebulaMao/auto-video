@@ -10,16 +10,16 @@ language = "zh-CN"  # 界面语言
 
 # ==================== DeepSeek LLM配置 ====================
 [llm]
-api_key = "sk-xxxxxxxxxxxxxxxxxxx"  # 请填入你的DeepSeek API密钥
-base_url = "https://api.deepseek.cn/v1"  # API基础URL
-model = "deepseek-ai/DeepSeek-V3"  # 使用的模型名称
+api_key = "sk-286e0a3cfbd5fd2b526879a15032e80e"  # 请填入你的DeepSeek API密钥
+base_url = "https://apis.iflow.cn/v1"  # API基础URL
+model = "deepseek-v3.2"  # 使用的模型名称
 max_tokens = 4000  # 最大生成token数
 temperature = 0.7  # 生成温度(0-1)
 timeout = 30  # API请求超时时间(秒)
 
 # ==================== TTS语音合成配置 ====================
 [tts]
-engine = "edge-tts"  # TTS引擎: edge-tts, pyttsx3, azure-tts
+engine = "siliconflow"  # TTS引擎: edge-tts, siliconflow, pyttsx3, azure-tts
 voice = "zh-CN-XiaoxiaoNeural"  # 语音名称(中文女声)
 rate = 1.0  # 语速倍率(0.5-2.0)
 volume = 1.0  # 音量倍率(0.0-2.0)
@@ -29,11 +29,20 @@ min_segment_length = 10  # 最小段落长度(字符)
 max_segment_length = 50  # 最大段落长度(字符) - 从100改为50，使字幕更短更易读
 segment_pause = 0.5  # 段落间停顿时间(秒)
 
-# ==================== Whisper语音识别配置 ====================
-[whisper]
-model_size = "base"  # 模型大小: tiny, base, small, medium, large
-language = "zh"  # 识别语言
-device = "auto"  # 计算设备: auto, cpu, cuda
+# ==================== SiliconFlow TTS 配置 ====================
+[siliconflow_tts]
+api_key = "sk-xtgkspdyfljcfnxiwxjeqfueybhodqfhticgxnpswyjftyhm"  # SiliconFlow API密钥，请填入你的API密钥
+base_url = "https://api.siliconflow.cn/v1"  # API基础URL
+model = "IndexTeam/IndexTTS-2"  # 模型名称
+voice = "fishaudio/fish-speech-1.4:david"  # 语音名称
+response_format = "mp3"  # 响应格式: mp3, opus, wav, pcm
+sample_rate = 32000  # 采样率
+speed = 1.0  # 语速倍率(0.25-4.0)
+gain = 0  # 音量增益(-10到10)
+stream = false  # 是否流式响应
+timeout = 30  # API请求超时时间(秒)
+
+
 
 # ==================== 视频处理配置 ====================
 [video]

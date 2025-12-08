@@ -348,6 +348,8 @@ timeout = 30                      # API请求超时时间(秒)
 5. 复制密钥并填入配置文件
 
 #### 2. TTS语音合成配置
+
+**Edge TTS（默认）**：
 ```toml
 [tts]
 engine = "edge-tts"               # TTS引擎
@@ -362,6 +364,40 @@ pitch = 0                         # 音调偏移(-100到100)
 - `zh-CN-YunxiNeural`：平和男声
 - `zh-CN-YunyangNeural`：专业男声
 - `zh-CN-XiaoyiNeural`：活泼女声
+
+**SiliconFlow TTS（推荐）**：
+```toml
+[tts]
+engine = "siliconflow"            # TTS引擎
+
+[siliconflow_tts]
+api_key = "your-api-key-here"     # SiliconFlow API密钥
+model = "fnlp/MOSS-TTSD-v0.5"     # 模型名称
+voice = "fnlp/MOSS-TTSD-v0.5:alex" # 语音名称
+speed = 1.0                        # 语速倍率(0.25-4.0)
+gain = 0                           # 音量增益(-10到10)
+response_format = "mp3"            # 输出格式
+```
+
+**SiliconFlow 可用语音**：
+- `fnlp/MOSS-TTSD-v0.5:alex`：Alex 男声
+- `fnlp/MOSS-TTSD-v0.5:emma`：Emma 女声
+- `fnlp/MOSS-TTSD-v0.5:brian`：Brian 英文男声
+- `fnlp/MOSS-TTSD-v0.5:alice`：Alice 英文女声
+
+**SiliconFlow 优势**：
+- 支持中英双语合成
+- 更自然的语音质量
+- 可调节语速范围更广（0.25-4.0）
+- 支持音量增益调节
+- 基于 MOSS-TTSD 模型
+
+**如何获取 SiliconFlow API Key**：
+1. 访问 [SiliconFlow 官网](https://siliconflow.cn)
+2. 注册并登录账户
+3. 进入控制台 → API Keys
+4. 创建新的 API Key
+5. 复制密钥到配置文件中
 
 #### 3. Whisper语音识别配置
 ```toml
@@ -698,10 +734,17 @@ A: 检查以下几点：
 
 **Q: TTS语音合成失败**
 
-A: 
-1. 检查网络连接（Edge-TTS需要网络）
-2. 尝试更换语音：修改config.toml中的`voice`参数
-3. 尝试离线引擎：改为`engine = "pyttsx3"`
+A:
+1. **Edge TTS**：
+   - 检查网络连接（Edge-TTS需要网络）
+   - 尝试更换语音：修改config.toml中的`voice`参数
+   - 尝试离线引擎：改为`engine = "pyttsx3"`
+
+2. **SiliconFlow TTS**：
+   - 检查API密钥是否正确配置
+   - 验证账户余额是否充足
+   - 使用测试脚本验证：`python test_siliconflow_tts.py`
+   - 检查网络连接到 api.siliconflow.cn
 
 **Q: Whisper模型下载慢或失败**
 
