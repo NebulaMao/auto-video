@@ -13,6 +13,7 @@ import json
 from ..core.exceptions import TTSError
 from ..core.logger import Logger
 from ..utils.text_utils import clean_xml_tags, has_xml_color_tags
+from ..utils.audio_utils import get_audio_duration, validate_audio_file, estimate_text_duration
 from .siliconflow_tts import SiliconFlowTTS
 
 
@@ -229,44 +230,18 @@ class TTSEngine:
     
     def get_audio_duration(self, audio_path: str) -> float:
         """获取音频文件时长
-        
+
         Args:
             audio_path: 音频文件路径
-            
+
         Returns:
             音频时长(秒)
-            
+
         Raises:
             TTSError: 获取时长失败时抛出
         """
         try:
-            # 使用ffprobe获取音频时长
-            cmd = [
-                'ffprobe', '-v', 'quiet', '-show_format', '-show_streams',
-                audio_path
-            ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                check=True
-            )
-            
-            # 解析输出获取时长
-            for line in result.stdout.split('\n'):
-                if line.startswith('duration='):
-                    return float(line.split('=')[1])
-            
-            # 如果没有找到duration，尝试从stream中获取
-            for line in result.stdout.split('\n'):
-                if 'duration=' in line.lower():
-                    duration_str = line.split('duration=')[1].strip()
-                    return float(duration_str)
-            
-            raise TTSError(f"无法获取音频时长: {audio_path}")
-            
+            return get_audio_duration(audio_path, self.logger, fallback_methods=True)
         except Exception as e:
             error_msg = f"获取音频时长失败: {str(e)}"
             if self.logger:
@@ -287,10 +262,9 @@ class TTSEngine:
         Raises:
             TTSError: 语音合成失败时抛出
         """
-        # 添加调试日志
-        print(f"[DEBUG] synthesize_segments: 开始分段语音合成，共 {len(text_segments)} 个段落")
+
         total_input_chars = sum(len(seg) for seg in text_segments)
-        print(f"[DEBUG] synthesize_segments: 输入文本总字符数={total_input_chars}")
+        
 
         if self.engine == 'siliconflow' and self.siliconflow_engine:
             # 使用 SiliconFlow 的分段合成
@@ -305,45 +279,33 @@ class TTSEngine:
 
         try:
             for i, segment in enumerate(text_segments):
-                print(f"[DEBUG] synthesize_segments: 处理段落 {i+1}/{len(text_segments)}")
-                print(f"[DEBUG] synthesize_segments: 段落 {i+1} 长度={len(segment)} 内容={segment[:50]}...")
 
                 if not segment.strip():
-                    print(f"[DEBUG] synthesize_segments: 段落 {i+1} 为空，跳过")
+                   
                     continue
 
                 # 清理XML标记（重要：确保每个段落都清理）
                 clean_segment = clean_xml_tags(segment.strip())
-                if has_xml_color_tags(segment):
-                    print(f"[DEBUG] synthesize_segments: 段落 {i+1} 包含XML颜色标记，已清理")
-                    print(f"[DEBUG] synthesize_segments: 原始文本: {segment[:30]}...")
-                    print(f"[DEBUG] synthesize_segments: 清理文本: {clean_segment[:30]}...")
 
                 # 跳过清理后为空白的段落
                 if not clean_segment.strip():
-                    print(f"[DEBUG] synthesize_segments: 段落 {i+1} 清理后为空，跳过")
+                   
                     continue
 
                 # 生成分段音频文件路径
                 segment_audio_path = output_path / f"segment_{i:03d}.mp3"
-                print(f"[DEBUG] synthesize_segments: 段落 {i+1} 音频路径={segment_audio_path}")
 
                 # 合成该段语音（使用清理后的文本）
-                print(f"[DEBUG] synthesize_segments: 开始合成段落 {i+1} 的语音")
+
                 try:
                     self.synthesize(clean_segment, str(segment_audio_path), **kwargs)
-                    print(f"[DEBUG] synthesize_segments: 段落 {i+1} 语音合成成功")
                 except Exception as e:
-                    print(f"[DEBUG] synthesize_segments: 段落 {i+1} 语音合成失败: {str(e)}")
                     raise
 
                 # 获取音频时长
-                print(f"[DEBUG] synthesize_segments: 获取段落 {i+1} 音频时长")
                 try:
                     duration = self.get_audio_duration(str(segment_audio_path))
-                    print(f"[DEBUG] synthesize_segments: 段落 {i+1} 音频时长={duration:.2f}秒")
                 except Exception as e:
-                    print(f"[DEBUG] synthesize_segments: 获取段落 {i+1} 音频时长失败: {str(e)}")
                     raise
 
                 segments_info.append({
@@ -360,13 +322,9 @@ class TTSEngine:
             # 统计最终结果
             total_duration = sum(seg['duration'] for seg in segments_info)
             total_output_chars = sum(len(seg['text']) for seg in segments_info)
-            print(f"[DEBUG] synthesize_segments: 分段语音合成完成")
-            print(f"[DEBUG] synthesize_segments: 成功合成 {len(segments_info)} 个段落")
-            print(f"[DEBUG] synthesize_segments: 输出文本总字符数={total_output_chars}")
-            print(f"[DEBUG] synthesize_segments: 总音频时长={total_duration:.2f}秒")
 
             if total_output_chars < total_input_chars * 0.9:
-                print(f"[DEBUG] synthesize_segments: 警告！输出文本字符数({total_output_chars})明显少于输入({total_input_chars})")
+                None
 
             if self.logger:
                 self.logger.info(f"分段语音合成完成,总时长: {total_duration:.2f}秒")
@@ -375,7 +333,7 @@ class TTSEngine:
 
         except Exception as e:
             error_msg = f"分段语音合成失败: {str(e)}"
-            print(f"[DEBUG] synthesize_segments: 异常 - {error_msg}")
+           
             if self.logger:
                 self.logger.error(error_msg)
             raise TTSError(error_msg)

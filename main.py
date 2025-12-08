@@ -138,16 +138,14 @@ def initialize_app(args: argparse.Namespace) -> tuple[ConfigManager, Logger, Gra
         Exception: 初始化失败时抛出异常
     """
     # 1. 加载配置文件
-    print(f"正在加载配置文件: {args.config}")
     try:
         config = ConfigManager(args.config)
         config.validate()
-        print("[OK] 配置文件加载成功")
     except FileNotFoundError:
-        print(f"[ERROR] 错误: 配置文件不存在: {args.config}")
+        sys.stderr.write(f"[ERROR] 错误: 配置文件不存在: {args.config}\n")
         sys.exit(1)
     except Exception as e:
-        print(f"[ERROR] 错误: 配置文件加载失败: {e}")
+        sys.stderr.write(f"[ERROR] 错误: 配置文件加载失败: {e}\n")
         sys.exit(1)
     
     # 2. 初始化日志系统
@@ -167,10 +165,8 @@ def initialize_app(args: argparse.Namespace) -> tuple[ConfigManager, Logger, Gra
         
         if args.debug:
             logger.info("调试模式已启用")
-
-        print("[OK] 日志系统初始化成功")
     except Exception as e:
-        print(f"[ERROR] 错误: 日志系统初始化失败: {e}")
+        sys.stderr.write(f"[ERROR] 错误: 日志系统初始化失败: {e}\n")
         sys.exit(1)
     
     # 3. 创建必要的目录
@@ -178,10 +174,9 @@ def initialize_app(args: argparse.Namespace) -> tuple[ConfigManager, Logger, Gra
         logger.info("正在创建必要的目录...")
         create_directories(config, logger)
         logger.info("目录创建完成")
-        print("[OK] 必要目录已创建")
     except Exception as e:
         logger.error(f"创建目录失败: {e}")
-        print(f"[WARN] 警告: 部分目录创建失败: {e}")
+        logger.warning(f"部分目录创建失败: {e}")
     
     # 4. 初始化Gradio应用
     try:
@@ -198,10 +193,8 @@ def initialize_app(args: argparse.Namespace) -> tuple[ConfigManager, Logger, Gra
         
         app = GradioApp(config, logger)
         logger.info("Gradio应用初始化成功")
-        print("[OK] Gradio应用初始化成功")
     except Exception as e:
         logger.error(f"Gradio应用初始化失败: {e}")
-        print(f"[ERROR] 错误: Gradio应用初始化失败: {e}")
         sys.exit(1)
     
     return config, logger, app
@@ -254,13 +247,13 @@ def main() -> int:
         return 0
         
     except KeyboardInterrupt:
-        print("\n\n正在关闭服务器...")
+        sys.stdout.write("\n\n正在关闭服务器...\n")
         if 'logger' in locals():
             logger.info("收到中断信号,正在关闭...")
         return 0
 
     except Exception as e:
-        print(f"\n[ERROR] 错误: 应用运行失败: {e}")
+        sys.stderr.write(f"\n[ERROR] 错误: 应用运行失败: {e}\n")
         if 'logger' in locals():
             logger.exception(f"应用运行失败: {e}")
         return 1

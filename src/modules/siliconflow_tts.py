@@ -9,9 +9,20 @@ import json
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 import subprocess
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, RetryError, retry_unless_exception_type
 from ..core.exceptions import TTSError
 from ..core.logger import Logger
 from ..utils.text_utils import clean_xml_tags, has_xml_color_tags
+from ..utils.audio_utils import get_audio_duration, validate_audio_file, estimate_text_duration
+
+
+class SiliconFlowAPIError(Exception):
+    """SiliconFlow API 错误，包含状态码和响应信息"""
+    def __init__(self, status_code: int, response_text: str, message: str = None):
+        self.status_code = status_code
+        self.response_text = response_text
+        self.message = message or f"SiliconFlow API 错误: {status_code}"
+        super().__init__(self.message)
 
 
 class SiliconFlowTTS:
@@ -42,6 +53,11 @@ class SiliconFlowTTS:
         self.stream = config.get('stream', False)
         self.timeout = config.get('timeout', 30)
 
+        # 重试配置
+        self.max_retry_attempts = config.get('max_retry_attempts', 3)
+        self.retry_base_delay = config.get('retry_base_delay', 1.0)
+        self.retry_max_delay = config.get('retry_max_delay', 60.0)
+
         # 验证配置
         if not self.api_key:
             raise TTSError("SiliconFlow API key 未配置")
@@ -50,6 +66,98 @@ class SiliconFlowTTS:
             self.logger.info(f"SiliconFlow TTS 引擎初始化完成")
             self.logger.info(f"模型: {self.model}")
             self.logger.info(f"语音: {self.voice}")
+
+    def _is_retryable_error(self, status_code: int, response_text: str = "") -> bool:
+        """判断HTTP错误是否可重试
+
+        Args:
+            status_code: HTTP状态码
+            response_text: 响应内容
+
+        Returns:
+            是否可重试
+        """
+        # 5xx 服务器错误通常可重试
+        if 500 <= status_code < 600:
+            return True
+
+        # 429 速率限制可重试
+        if status_code == 429:
+            return True
+
+        # 408 请求超时可重试
+        if status_code == 408:
+            return True
+
+        # 特定的错误消息
+        if response_text:
+            retryable_messages = [
+                "Request processing failed due to an unknown error",
+                "Internal server error",
+                "Service temporarily unavailable",
+                "Rate limit exceeded",
+                "Timeout"
+            ]
+            if any(msg.lower() in response_text.lower() for msg in retryable_messages):
+                return True
+
+        return False
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=60),
+        retry=retry_if_exception_type(SiliconFlowAPIError),
+        before_sleep=None,
+        after=None
+    )
+    def _make_api_request(self, url: str, headers: Dict[str, str], data: Dict[str, Any]) -> bytes:
+        """执行API请求，带重试机制
+
+        Args:
+            url: 请求URL
+            headers: 请求头
+            data: 请求数据
+
+        Returns:
+            响应内容
+
+        Raises:
+            SiliconFlowAPIError: API错误
+            requests.RequestException: 网络错误
+        """
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                json=data,
+                timeout=self.timeout
+            )
+
+            if response.status_code == 200:
+                return response.content
+            else:
+                # 检查是否为可重试的错误
+                if self._is_retryable_error(response.status_code, response.text):
+                    error_info = {
+                        "status_code": response.status_code,
+                        "text": response.text
+                    }
+                    if self.logger:
+                        self.logger.warning(f"SiliconFlow API 可重试错误: {error_info}")
+                    raise SiliconFlowAPIError(response.status_code, response.text)
+                else:
+                    # 不可重试的错误直接抛出
+                    error_info = {
+                        "status_code": response.status_code,
+                        "text": response.text
+                    }
+                    raise TTSError(f"SiliconFlow API 不可重试错误: {error_info}")
+
+        except requests.exceptions.RequestException as e:
+            # 网络错误通常可以重试
+            if self.logger:
+                self.logger.warning(f"SiliconFlow API 网络错误，将重试: {str(e)}")
+            raise SiliconFlowAPIError(0, "", f"网络错误: {str(e)}")
 
     def synthesize(self, text: str, output_path: str, **kwargs) -> str:
         """合成语音
@@ -78,6 +186,20 @@ class SiliconFlowTTS:
         try:
             return self._synthesize_siliconflow(clean_text, output_path, **kwargs)
 
+        except RetryError as e:
+            # 重试失败
+            # 获取最后的异常信息
+            last_exception = getattr(e, 'last_exception', str(e))
+            if hasattr(e, '__cause__') and e.__cause__:
+                last_exception = e.__cause__
+            elif hasattr(e, '__context__') and e.__context__:
+                last_exception = e.__context__
+
+            error_msg = f"SiliconFlow TTS 重试失败: {str(last_exception)}"
+            if self.logger:
+                self.logger.error(error_msg)
+                self.logger.error("建议检查：1) API Key 是否有效 2) 网络连接是否正常 3) SiliconFlow 服务状态")
+            raise TTSError(error_msg)
         except Exception as e:
             error_msg = f"SiliconFlow TTS 语音合成失败: {str(e)}"
             if self.logger:
@@ -129,32 +251,24 @@ class SiliconFlowTTS:
         url = f"{self.base_url}/audio/speech"
 
         try:
-            response = requests.post(
-                url,
-                headers=headers,
-                json=data,
-                timeout=self.timeout
-            )
+            # 使用带重试的API请求
+            response_content = self._make_api_request(url, headers, data)
 
-            # 检查响应状态
-            if response.status_code == 200:
-                # 保存音频文件
-                with open(output_file, 'wb') as f:
-                    f.write(response.content)
+            # 保存音频文件
+            with open(output_file, 'wb') as f:
+                f.write(response_content)
 
-                if self.logger:
-                    self.logger.info(f"SiliconFlow TTS 语音合成完成: {output_path}")
+            if self.logger:
+                self.logger.info(f"SiliconFlow TTS 语音合成完成: {output_path}")
 
-                return str(output_file)
-            else:
-                error_info = {
-                    "status_code": response.status_code,
-                    "text": response.text
-                }
-                raise TTSError(f"SiliconFlow API 请求失败: {error_info}")
+            return str(output_file)
 
-        except requests.exceptions.RequestException as e:
-            raise TTSError(f"SiliconFlow API 请求异常: {str(e)}")
+        except RetryError as e:
+            # 重试失败，向上传递
+            raise
+        except Exception as e:
+            # 其他不可重试的错误
+            raise TTSError(f"SiliconFlow API 请求失败: {str(e)}")
 
     def get_available_voices(self) -> List[Dict[str, str]]:
         """获取可用的语音列表
@@ -267,33 +381,7 @@ class SiliconFlowTTS:
             TTSError: 获取时长失败时抛出
         """
         try:
-            # 使用ffprobe获取音频时长
-            cmd = [
-                'ffprobe', '-v', 'quiet', '-show_format', '-show_streams',
-                audio_path
-            ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                check=True
-            )
-
-            # 解析输出获取时长
-            for line in result.stdout.split('\n'):
-                if line.startswith('duration='):
-                    return float(line.split('=')[1])
-
-            # 如果没有找到duration，尝试从stream中获取
-            for line in result.stdout.split('\n'):
-                if 'duration=' in line.lower():
-                    duration_str = line.split('duration=')[1].strip()
-                    return float(duration_str)
-
-            raise TTSError(f"无法获取音频时长: {audio_path}")
-
+            return get_audio_duration(audio_path, self.logger, fallback_methods=True)
         except Exception as e:
             error_msg = f"获取音频时长失败: {str(e)}"
             if self.logger:

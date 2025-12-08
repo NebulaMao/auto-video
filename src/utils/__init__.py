@@ -24,6 +24,11 @@ from .text_utils import (
     truncate_text,
     word_count
 )
+from .audio_utils import (
+    get_audio_duration,
+    validate_audio_file,
+    estimate_text_duration
+)
 
 __all__ = [
     # file_utils
@@ -42,4 +47,8 @@ __all__ = [
     "split_text_by_sentences",
     "truncate_text",
     "word_count",
+    # audio_utils
+    "get_audio_duration",
+    "validate_audio_file",
+    "estimate_text_duration",
 ]

@@ -826,15 +826,18 @@ class AudioProcessor:
             拼接后的音频文件路径
         """
         # 添加调试日志
-        print(f"[DEBUG] concat_audio_files: 开始拼接音频文件，共 {len(audio_files)} 个文件")
-        print(f"[DEBUG] concat_audio_files: 输出路径={output_path}")
-        
+        if self.logger:
+            self.logger.debug(f"concat_audio_files: 开始拼接音频文件，共 {len(audio_files)} 个文件")
+            self.logger.debug(f"concat_audio_files: 输出路径={output_path}")
+
         # 验证输入文件存在性
         for i, audio_file in enumerate(audio_files):
             if not os.path.exists(audio_file):
-                print(f"[DEBUG] concat_audio_files: 错误！音频文件不存在: {audio_file}")
+                if self.logger:
+                    self.logger.error(f"concat_audio_files: 错误！音频文件不存在: {audio_file}")
                 raise FileNotFoundError(f"音频文件不存在: {audio_file}")
-            print(f"[DEBUG] concat_audio_files: 音频文件 {i+1} 存在: {audio_file}")
+            if self.logger:
+                self.logger.debug(f"concat_audio_files: 音频文件 {i+1} 存在: {audio_file}")
         
         # 获取每个音频文件的时长
         total_input_duration = 0
@@ -842,22 +845,27 @@ class AudioProcessor:
             try:
                 duration = self.info_extractor.get_duration(audio_file)
                 total_input_duration += duration
-                print(f"[DEBUG] concat_audio_files: 音频文件 {i+1} 时长={duration:.2f}秒")
+                if self.logger:
+                    self.logger.debug(f"concat_audio_files: 音频文件 {i+1} 时长={duration:.2f}秒")
             except Exception as e:
-                print(f"[DEBUG] concat_audio_files: 获取音频文件 {i+1} 时长失败: {str(e)}")
-        
-        print(f"[DEBUG] concat_audio_files: 输入音频总时长={total_input_duration:.2f}秒")
-        
+                if self.logger:
+                    self.logger.debug(f"concat_audio_files: 获取音频文件 {i+1} 时长失败: {str(e)}")
+
+        if self.logger:
+            self.logger.debug(f"concat_audio_files: 输入音频总时长={total_input_duration:.2f}秒")
+
         # 创建临时文件列表
         with self.temp_manager.create_temp_file(suffix='.txt') as list_file:
-            print(f"[DEBUG] concat_audio_files: 创建临时列表文件={list_file}")
-            
+            if self.logger:
+                self.logger.debug(f"concat_audio_files: 创建临时列表文件={list_file}")
+
             with open(list_file, 'w', encoding='utf-8') as f:
                 for i, path in enumerate(audio_files):
                     # 使用绝对路径避免路径问题,并转义特殊字符
                     abs_path = os.path.abspath(path).replace('\\', '/')
                     f.write(f"file '{abs_path}'\n")
-                    print(f"[DEBUG] concat_audio_files: 添加到列表文件 {i+1}: {abs_path}")
+                    if self.logger:
+                        self.logger.debug(f"concat_audio_files: 添加到列表文件 {i+1}: {abs_path}")
             
             # 使用concat demuxer拼接音频
             cmd = [
@@ -869,30 +877,38 @@ class AudioProcessor:
                 output_path
             ]
             
-            print(f"[DEBUG] concat_audio_files: 执行FFmpeg命令: {' '.join(cmd)}")
-            
+            if self.logger:
+                self.logger.debug(f"concat_audio_files: 执行FFmpeg命令: {' '.join(cmd)}")
+
             try:
                 self.error_handler.execute_command(cmd)
-                print(f"[DEBUG] concat_audio_files: FFmpeg命令执行成功")
+                if self.logger:
+                    self.logger.debug(f"concat_audio_files: FFmpeg命令执行成功")
             except Exception as e:
-                print(f"[DEBUG] concat_audio_files: FFmpeg命令执行失败: {str(e)}")
+                if self.logger:
+                    self.logger.debug(f"concat_audio_files: FFmpeg命令执行失败: {str(e)}")
                 raise
-        
+
         # 验证输出文件
         if os.path.exists(output_path):
             try:
                 output_duration = self.info_extractor.get_duration(output_path)
-                print(f"[DEBUG] concat_audio_files: 输出音频文件存在，时长={output_duration:.2f}秒")
-                
+                if self.logger:
+                    self.logger.debug(f"concat_audio_files: 输出音频文件存在，时长={output_duration:.2f}秒")
+
                 # 检查时长是否匹配
                 if abs(output_duration - total_input_duration) > 0.5:
-                    print(f"[DEBUG] concat_audio_files: 警告！输出时长({output_duration:.2f})与输入总时长({total_input_duration:.2f})不匹配")
+                    if self.logger:
+                        self.logger.warning(f"concat_audio_files: 警告！输出时长({output_duration:.2f})与输入总时长({total_input_duration:.2f})不匹配")
                 else:
-                    print(f"[DEBUG] concat_audio_files: 时长匹配，拼接成功")
+                    if self.logger:
+                        self.logger.debug(f"concat_audio_files: 时长匹配，拼接成功")
             except Exception as e:
-                print(f"[DEBUG] concat_audio_files: 获取输出音频时长失败: {str(e)}")
+                if self.logger:
+                    self.logger.debug(f"concat_audio_files: 获取输出音频时长失败: {str(e)}")
         else:
-            print(f"[DEBUG] concat_audio_files: 错误！输出音频文件不存在: {output_path}")
+            if self.logger:
+                self.logger.error(f"concat_audio_files: 错误！输出音频文件不存在: {output_path}")
         
         return output_path
 

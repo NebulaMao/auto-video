@@ -12,32 +12,54 @@ from typing import List, Optional, Tuple, Dict
 
 def clean_text(text: str, remove_extra_spaces: bool = True) -> str:
     """清理文本
-    
+
     Args:
         text: 原始文本
         remove_extra_spaces: 是否移除多余空格
-        
+
     Returns:
         清理后的文本
     """
     if not text:
         return ""
-    
-    # 移除控制字符
+
+    # 移除控制字符（保留换行符）
     text = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]', '', text)
-    
+
     # 统一换行符
     text = text.replace('\r\n', '\n').replace('\r', '\n')
-    
+
     # 移除多余空格
     if remove_extra_spaces:
         text = re.sub(r' +', ' ', text)
         text = re.sub(r'\n +', '\n', text)
         text = re.sub(r' +\n', '\n', text)
-    
-    # 移除多余换行
+
+    # 移除多余换行（更严格的清理）
     text = re.sub(r'\n{3,}', '\n\n', text)
-    
+
+    # 移除标点符号前后的换行（防止字幕中出现不必要的换行）
+    text = re.sub(r'\n+([。！？；：，、])', r'\1', text)  # 中文标点前
+    text = re.sub(r'([。！？；：，、])\n+', r'\1', text)  # 中文标点后
+    text = re.sub(r'\n+([.!?;:,])', r'\1', text)     # 英文标点前
+    text = re.sub(r'([.!?;:,])\n+', r'\1', text)     # 英文标点后
+
+    # 移除括号前后的换行
+    text = re.sub(r'\n+(\()', r'\1', text)
+    text = re.sub(r'(\))\n+', r'\1', text)
+    text = re.sub(r'\n+(\[)', r'\1', text)
+    text = re.sub(r'(\])\n+', r'\1', text)
+
+    # 移除XML标签前后的换行
+    text = re.sub(r'\n+(<[^>]+>)', r'\1', text)
+    text = re.sub(r'(<[^>]+>)\n+', r'\1', text)
+
+    # 移除开头和结尾的换行
+    text = text.strip()
+
+    # 最后检查：如果还有连续换行，减少到最多一个
+    text = re.sub(r'\n{2,}', ' ', text)  # 将多余的换行转换为空格
+
     return text.strip()
 
 
@@ -61,15 +83,21 @@ def clean_xml_tags(text: str) -> str:
     if not text:
         return ""
 
+    # 先清理XML标签周围的多余空白和换行
+    text = re.sub(r'\s*<([^>]+)>\s*', r'<\1>', text)  # 标签周围的空白
+    text = re.sub(r'\s*</([^>]+)>\s*', r'</\1>', text)  # 闭标签周围的空白
+
     # 移除所有XML样式的标记
-    # 匹配 <tag> 和 </tag> 格式的标记
     xml_pattern = r'</?[^>]+>'
     clean_text = re.sub(xml_pattern, '', text)
 
-    # 清理可能的多余空格
-    clean_text = re.sub(r'\s+', ' ', clean_text)
+    # 清理XML标签移除后可能产生的多余空白
+    clean_text = re.sub(r'\s+', ' ', clean_text)  # 多个空白字符合并为一个空格
 
-    return clean_text.strip()
+    # 移除可能出现在行首行尾的空格
+    clean_text = clean_text.strip()
+
+    return clean_text
 
 
 def parse_color_segments(text: str) -> List[Dict[str, str]]:
@@ -133,6 +161,46 @@ def has_xml_color_tags(text: str) -> bool:
     # 检查是否包含常见的颜色标记
     color_tags_pattern = r'<(?:yellow|red|blue|green|purple|orange|pink|金色|黄色|红色|蓝色|绿色|紫色|橙色|粉色)>'
     return bool(re.search(color_tags_pattern, text, re.IGNORECASE))
+
+
+def clean_xml_preserving_tags(text: str) -> str:
+    """清理包含XML标记的文本，但保留标记本身
+
+    专门用于处理包含颜色标记的文本，清理多余的换行和空白，
+    但保留XML颜色标记不被破坏。
+
+    Args:
+        text: 包含XML标记的文本
+
+    Returns:
+        清理后仍保留XML标记的文本
+
+    Examples:
+        >>> clean_xml_preserving_tags("你好<yellow>世界</yellow>！\n\n")
+        "你好<yellow>世界</yellow>！"
+    """
+    if not text:
+        return ""
+
+    # 统一换行符
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+
+    # 清理XML标记内的多余空白（但保留标记结构）
+    # 移除开标签前的换行
+    text = re.sub(r'\n+(<[^/>]+>)', r'\1', text)
+    # 移除闭标签后的换行
+    text = re.sub(r'(</[^>]+>)\n+', r'\1', text)
+
+    # 清理文本内容中的多余换行和空格（在标记之外）
+    # 将多个连续换行替换为单个空格
+    text = re.sub(r'\n{2,}', ' ', text)
+    # 将多个连续空格合并为单个空格
+    text = re.sub(r' +', ' ', text)
+
+    # 移除开头和结尾的空白
+    text = text.strip()
+
+    return text
 
 
 def extract_plain_text(text: str) -> str:
@@ -421,7 +489,13 @@ def parse_time(time_str: str) -> float:
         return float(parts[0])
     
     
-def split_text_by_punctuation(text: str, language: str = 'zh', min_length: int = 10, max_length: int = 100) -> List[str]:
+def split_text_by_punctuation(
+    text: str,
+    language: str = 'zh',
+    min_length: int = 10,
+    max_length: int = 100,
+    include_comma: bool = False
+) -> List[str]:
     """按标点符号分割文本
     
     Args:
@@ -429,6 +503,7 @@ def split_text_by_punctuation(text: str, language: str = 'zh', min_length: int =
         language: 语言('zh'中文, 'en'英文)
         min_length: 最小段落长度(字符)
         max_length: 最大段落长度(字符)
+        include_comma: 是否将逗号也视为分段标点
         
     Returns:
         按标点符号分割的文本段落列表
@@ -450,10 +525,16 @@ def split_text_by_punctuation(text: str, language: str = 'zh', min_length: int =
     
     if language == 'zh':
         # 中文标点符号（使用捕获组保留标点）
-        punctuation_pattern = r'([。！？；：])'
+        if include_comma:
+            punctuation_pattern = r'([。！？；：，])'
+        else:
+            punctuation_pattern = r'([。！？；：])'
     else:
         # 英文标点符号（使用捕获组保留标点）
-        punctuation_pattern = r'([.!?;:])'
+        if include_comma:
+            punctuation_pattern = r'([.!?;:,])'
+        else:
+            punctuation_pattern = r'([.!?;:])'
 
     logging.debug(f"split_text_by_punctuation: 使用标点符号模式={punctuation_pattern}")
 

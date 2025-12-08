@@ -6,6 +6,7 @@
 
 import uuid
 import json
+import re
 from typing import Any, Dict, List, Optional, Callable
 from pathlib import Path
 import shutil
@@ -26,7 +27,7 @@ from ..modules.random_material_selector import RandomMaterialSelector
 from ..modules.tts_engine import TTSEngine
 from ..modules.video_editor import VideoEditor
 from ..modules.subtitle_renderer import SubtitleRenderer
-from ..utils.text_utils import split_text_by_punctuation, has_xml_color_tags
+from ..utils.text_utils import split_text_by_punctuation, has_xml_color_tags, clean_text, clean_xml_tags, clean_xml_preserving_tags
 
 
 class WorkflowManager:
@@ -400,14 +401,42 @@ class WorkflowManager:
             (完整音频文件路径, 段落信息列表)
         """
         try:
+            tts_config = self.config_manager.get_section('tts')
+            segment_by_punctuation = tts_config.get('segment_by_punctuation', True)
+            min_segment_length = tts_config.get('min_segment_length', 10)
+            max_segment_length = tts_config.get('max_segment_length', 100)
+            include_comma = tts_config.get('segment_include_comma', True)
+
+            if self.logger:
+                self.logger.debug(
+                    "[TTS] 文本分段配置: by_punctuation=%s, include_comma=%s, min=%s, max=%s"
+                    % (segment_by_punctuation, include_comma, min_segment_length, max_segment_length)
+                )
+
             # 按标点符号分割文本
-            text_segments = split_text_by_punctuation(script, language='zh')
+            if segment_by_punctuation:
+                text_segments = split_text_by_punctuation(
+                    script,
+                    language='zh',
+                    min_length=min_segment_length,
+                    max_length=max_segment_length,
+                    include_comma=include_comma
+                )
+            else:
+                text_segments = [clean_text(script)] if script.strip() else []
             
             if not text_segments:
                 # 如果分割失败，回退到原始方法
                 self.logger.warning("文本分割失败，回退到原始TTS方法")
                 audio_path = self._generate_tts(script, task_id)
-                return audio_path, [{'text': script, 'duration': 0, 'start_time': 0, 'end_time': 0}]
+                # 获取实际音频时长
+                try:
+                    actual_duration = self.tts_engine.get_audio_duration(audio_path)
+                    return audio_path, [{'text': script, 'duration': actual_duration, 'start_time': 0, 'end_time': actual_duration}]
+                except Exception as e:
+                    self.logger.warning(f"无法获取音频时长，使用估算时长: {str(e)}")
+                    estimated_duration = len(script) * 0.1  # 简单估算：每个字符0.1秒
+                    return audio_path, [{'text': script, 'duration': estimated_duration, 'start_time': 0, 'end_time': estimated_duration}]
             
             self.logger.info(f"文本分割为 {len(text_segments)} 个段落")
             
@@ -435,18 +464,50 @@ class WorkflowManager:
                 str(final_audio_path)
             )
             
-            # 计算每段的时间轴
-            current_time = 0
+            total_duration = sum(seg['duration'] for seg in segments_info)
+            try:
+                merged_duration = self.tts_engine.get_audio_duration(str(final_audio_path))
+            except Exception as duration_error:
+                merged_duration = total_duration
+                if self.logger:
+                    self.logger.warning(
+                        f"[TIMING] 无法获取拼接后音频时长，使用片段总时长: {duration_error}"
+                    )
+
+            scale_factor = 1.0
+            if total_duration > 0 and abs(merged_duration - total_duration) > 0.05:
+                scale_factor = merged_duration / total_duration
+                if self.logger:
+                    self.logger.info(
+                        "[TIMING] 拼接后音频时长与片段总和存在差异，按比例校正字幕时间轴 "
+                        f"(scale={scale_factor:.4f}, merged={merged_duration:.2f}s, "
+                        f"segments={total_duration:.2f}s)"
+                    )
+
+            # 计算每段的时间轴（应用校准因子）
+            current_time = 0.0
             for i, segment in enumerate(segments_info):
+                adjusted_duration = segment['duration'] * scale_factor
+                segment['duration'] = adjusted_duration
                 segment['start_time'] = current_time
-                segment['end_time'] = current_time + segment['duration']
-                current_time += segment['duration']
-                
-                # 清理分段音频文件
+                segment['end_time'] = current_time + adjusted_duration
+                current_time = segment['end_time']
+
                 try:
                     Path(segment['audio_path']).unlink()
                 except Exception:
                     pass
+
+            # 将最后一段结束时间对齐到实际音频时长，避免累计误差
+            if segments_info and abs(current_time - merged_duration) > 0.02:
+                drift = merged_duration - current_time
+                segments_info[-1]['duration'] += drift
+                segments_info[-1]['end_time'] += drift
+                current_time = merged_duration
+                if self.logger:
+                    self.logger.debug(
+                        f"[TIMING] 已对齐最后一段结束时间，修正差值 {drift:.3f}s"
+                    )
             
             # 清理分段目录
             try:
@@ -463,7 +524,14 @@ class WorkflowManager:
             # 回退到原始方法
             self.logger.info("回退到原始TTS方法")
             audio_path = self._generate_tts(script, task_id)
-            return audio_path, [{'text': script, 'duration': 0, 'start_time': 0, 'end_time': 0}]
+            # 获取实际音频时长
+            try:
+                actual_duration = self.tts_engine.get_audio_duration(audio_path)
+                return audio_path, [{'text': script, 'duration': actual_duration, 'start_time': 0, 'end_time': actual_duration}]
+            except Exception as duration_error:
+                self.logger.warning(f"无法获取音频时长，使用估算时长: {str(duration_error)}")
+                estimated_duration = len(script) * 0.1  # 简单估算：每个字符0.1秒
+                return audio_path, [{'text': script, 'duration': estimated_duration, 'start_time': 0, 'end_time': estimated_duration}]
     
     def _generate_subtitles_from_segments(self, segments_info: list, task_id: str) -> str:
         """基于分段TTS信息生成字幕
@@ -485,14 +553,26 @@ class WorkflowManager:
 
             self.logger.info(f"字幕换行参数: 视频宽度={video_width}px, 每行最大字符数={max_chars_per_line}")
 
+            # 智能分段处理
+            processed_segments = self._smart_segmentation(segments_info, max_chars_per_line)
+
             # 生成SRT格式字幕
             with open(subtitle_path, 'w', encoding='utf-8') as f:
-                for i, segment in enumerate(segments_info, start=1):
+                for i, segment in enumerate(processed_segments, start=1):
                     start_time = segment['start_time']
                     end_time = segment['end_time']
 
                     # 如果有原始文本（包含XML标记），则使用原始文本，否则使用清理后的文本
                     text = segment.get('original_text', segment['text'])
+
+                    # ✨ 新增：文本预处理和验证
+                    text = self._preprocess_subtitle_text(text)
+
+                    # 验证文本处理结果
+                    original_length = len(segment.get('original_text', segment['text']))
+                    processed_length = len(text)
+                    if processed_length < original_length * 0.5:
+                        self.logger.warning(f"段落{i} 文本长度变化过大：{original_length} -> {processed_length}，可能存在问题")
 
                     # ✨ 新增：预处理文本，智能换行
                     if len(text) > max_chars_per_line:
@@ -514,6 +594,9 @@ class WorkflowManager:
                     else:
                         self.logger.debug(f"段落{i} 长度{len(text)}未超过{max_chars_per_line}，无需换行")
 
+                    # 最终文本验证和清理
+                    text = self._final_text_cleanup(text)
+
                     # 格式化时间轴
                     start_str = self._format_srt_time(start_time)
                     end_str = self._format_srt_time(end_time)
@@ -523,13 +606,151 @@ class WorkflowManager:
                     f.write(f"{start_str} --> {end_str}\n")
                     f.write(f"{text}\n\n")
 
-            self.logger.info(f"基于分段TTS信息生成字幕完成: {subtitle_path}, 共{len(segments_info)}条字幕")
+            self.logger.info(f"基于分段TTS信息生成字幕完成: {subtitle_path}, 共{len(processed_segments)}条字幕")
             return str(subtitle_path)
 
         except Exception as e:
             self.logger.error(f"基于分段TTS信息生成字幕失败: {str(e)}")
             raise
-    
+
+    def _smart_segmentation(self, segments_info: list, max_chars_per_line: int) -> list:
+        """智能分段处理，确保字幕显示效果良好
+
+        Args:
+            segments_info: 原始段落信息列表
+            max_chars_per_line: 每行最大字符数
+
+        Returns:
+            处理后的段落信息列表
+        """
+        processed_segments = []
+
+        for segment in segments_info:
+            text = segment.get('original_text', segment['text'])
+            duration = segment['duration']
+            start_time = segment['start_time']
+            end_time = segment['end_time']
+
+            # 如果只有一个段落且文本很长，进行智能分割
+            if len(segments_info) == 1 and len(text) > max_chars_per_line * 2:
+                self.logger.info(f"单段落文本过长({len(text)}字符)，进行智能分割")
+
+                # 按句子分割
+                sentences = self._split_text_to_sentences(text)
+
+                if len(sentences) > 1:
+                    lengths = [max(len(sentence.strip()), 1) for sentence in sentences]
+                    total_length = sum(lengths)
+                    cursor = start_time
+
+                    for sentence, seg_len in zip(sentences, lengths):
+                        ratio = seg_len / total_length if total_length else 1 / len(sentences)
+                        sentence_duration = duration * ratio
+                        sentence_start = cursor
+                        sentence_end = sentence_start + sentence_duration
+                        cursor = sentence_end
+
+                        processed_segments.append({
+                            'text': sentence.strip(),
+                            'original_text': sentence.strip(),
+                            'duration': sentence_duration,
+                            'start_time': sentence_start,
+                            'end_time': sentence_end
+                        })
+
+                    # 对齐最后一句结束时间，避免浮点误差累积
+                    if processed_segments:
+                        drift = (start_time + duration) - processed_segments[-1]['end_time']
+                        if abs(drift) > 1e-3:
+                            processed_segments[-1]['duration'] += drift
+                            processed_segments[-1]['end_time'] += drift
+                else:
+                    # 如果无法按句子分割，按长度强制分割
+                    chunks = self._split_long_text(text, max_chars_per_line * 2)
+                    lengths = [max(len(chunk.strip()), 1) for chunk in chunks]
+                    total_length = sum(lengths)
+                    cursor = start_time
+
+                    for chunk, seg_len in zip(chunks, lengths):
+                        ratio = seg_len / total_length if total_length else 1 / len(chunks)
+                        chunk_duration = duration * ratio
+                        chunk_start = cursor
+                        chunk_end = chunk_start + chunk_duration
+                        cursor = chunk_end
+
+                        processed_segments.append({
+                            'text': chunk.strip(),
+                            'original_text': chunk.strip(),
+                            'duration': chunk_duration,
+                            'start_time': chunk_start,
+                            'end_time': chunk_end
+                        })
+
+                    if processed_segments:
+                        drift = (start_time + duration) - processed_segments[-1]['end_time']
+                        if abs(drift) > 1e-3:
+                            processed_segments[-1]['duration'] += drift
+                            processed_segments[-1]['end_time'] += drift
+            else:
+                # 保持原有分段，但确保时间信息正确
+                processed_segments.append({
+                    'text': text,
+                    'original_text': text,
+                    'duration': duration,
+                    'start_time': start_time,
+                    'end_time': end_time
+                })
+
+        self.logger.info(f"智能分段完成: {len(segments_info)} -> {len(processed_segments)} 个段落")
+        return processed_segments
+
+    def _split_text_to_sentences(self, text: str) -> list:
+        """将文本分割为句子
+
+        Args:
+            text: 输入文本
+
+        Returns:
+            句子列表
+        """
+        import re
+        # 按中英文标点符号分割
+        sentences = re.split(r'[。！？.!?]+', text)
+        # 过滤空句子并保留标点符号
+        sentences = [s.strip() for s in sentences if s.strip()]
+
+        # 如果分割后只有一个句子，尝试按逗号分割
+        if len(sentences) <= 1:
+            sentences = re.split(r'[，,、；;]+', text)
+            sentences = [s.strip() for s in sentences if s.strip()]
+
+        return sentences if sentences else [text]
+
+    def _split_long_text(self, text: str, max_length: int) -> list:
+        """将长文本按长度分割
+
+        Args:
+            text: 输入文本
+            max_length: 每段最大长度
+
+        Returns:
+            文本段落列表
+        """
+        chunks = []
+        current_chunk = ""
+
+        for char in text:
+            if len(current_chunk) >= max_length:
+                chunks.append(current_chunk)
+                current_chunk = char
+            else:
+                current_chunk += char
+
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        return chunks
+
     def _format_srt_time(self, seconds: float) -> str:
         """格式化时间为SRT格式
         
@@ -825,3 +1046,52 @@ class WorkflowManager:
         }
 
         return {**random_stats, **semantic_stats}
+
+    def _preprocess_subtitle_text(self, text: str) -> str:
+        """预处理字幕文本，清理多余换行和空白
+
+        Args:
+            text: 原始文本
+
+        Returns:
+            清理后的文本
+        """
+        if not text:
+            return text
+
+        # 如果包含XML标记，使用保留标记的清理函数
+        if has_xml_color_tags(text):
+            text = clean_xml_preserving_tags(text)
+        else:
+            # 普通文本使用标准清理
+            text = clean_text(text, remove_extra_spaces=True)
+
+        return text
+
+    def _final_text_cleanup(self, text: str) -> str:
+        """最终文本清理，确保字幕显示质量
+
+        Args:
+            text: 待清理的文本
+
+        Returns:
+            最终清理后的文本
+        """
+        if not text:
+            return text
+
+        # 移除多余的连续换行符
+        text = re.sub(r'\n{3,}', '\n\n', text)
+
+        # 移除行首行尾的空白字符
+        lines = text.split('\n')
+        cleaned_lines = [line.strip() for line in lines if line.strip()]
+
+        # 重新组合，保留合理的换行
+        result = '\n'.join(cleaned_lines)
+
+        # 如果结果为空，返回原始文本的清理版本
+        if not result:
+            result = clean_text(text, remove_extra_spaces=True)
+
+        return result

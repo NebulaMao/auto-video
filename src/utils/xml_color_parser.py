@@ -130,6 +130,8 @@ class XMLColorParser:
                 # 添加标记前的文本
                 if tag_start > last_end:
                     pre_text = text[last_end:tag_start]
+                    # 清理前导和尾随空白
+                    pre_text = re.sub(r'\s+', ' ', pre_text.strip())
                     if pre_text:
                         segments.append(ColorSegment(
                             text=pre_text,
@@ -137,6 +139,9 @@ class XMLColorParser:
                             start_pos=last_end,
                             end_pos=tag_start
                         ))
+
+                # 清理标签内容的空白
+                tag_content = re.sub(r'\s+', ' ', tag_content.strip())
 
                 # 添加带颜色的文本
                 segments.append(ColorSegment(
@@ -151,6 +156,8 @@ class XMLColorParser:
         # 添加剩余文本
         if last_end < len(text):
             remaining_text = text[last_end:]
+            # 清理剩余文本的空白
+            remaining_text = re.sub(r'\s+', ' ', remaining_text.strip())
             if remaining_text:
                 segments.append(ColorSegment(
                     text=remaining_text,
@@ -200,9 +207,20 @@ class XMLColorParser:
 
     def _extract_clean_text(self, text: str) -> str:
         """提取不含XML标记的纯文本"""
+        # 先清理XML标签周围的多余空白和换行
+        text = re.sub(r'\s*<([^>]+)>\s*', r'<\1>', text)  # 开标签周围的空白
+        text = re.sub(r'\s*</([^>]+)>\s*', r'</\1>', text)  # 闭标签周围的空白
+
         # 移除所有XML标记
         clean_text = self.all_tags_pattern.sub("", text)
-        return clean_text.strip()
+
+        # 清理XML标签移除后可能产生的多余空白
+        clean_text = re.sub(r'\s+', ' ', clean_text)  # 多个空白字符合并为一个空格
+
+        # 移除可能出现在行首行尾的空格
+        clean_text = clean_text.strip()
+
+        return clean_text
 
     def to_ass_format(self, segments: List[ColorSegment]) -> str:
         """
@@ -299,26 +317,25 @@ def test_xml_parser():
         "<yellow>只有标记</yellow>",
     ]
 
-    print("=== XML颜色解析器测试 ===\n")
+    sys.stdout.write("=== XML颜色解析器测试 ===\n")
 
     for i, test_text in enumerate(test_cases, 1):
-        print(f"测试用例 {i}: {test_text}")
+        sys.stdout.write(f"测试用例 {i}: {test_text}\n")
 
         try:
             segments, clean_text = parser.parse_text(test_text)
             ass_format = parser.to_ass_format(segments)
 
-            print(f"  清理文本: {clean_text}")
-            print(f"  分段数量: {len(segments)}")
+            sys.stdout.write(f"  清理文本: {clean_text}\n")
+            sys.stdout.write(f"  分段数量: {len(segments)}\n")
 
             for j, seg in enumerate(segments):
-                print(f"    分段{j+1}: [{seg.color}] '{seg.text}'")
+                sys.stdout.write(f"    分段{j+1}: [{seg.color}] '{seg.text}'\n")
 
-            print(f"  ASS格式: {ass_format}")
-            print()
+            sys.stdout.write(f"  ASS格式: {ass_format}\n\n")
 
         except Exception as e:
-            print(f"  错误: {e}\n")
+            sys.stderr.write(f"  错误: {e}\n\n")
 
 
 if __name__ == "__main__":

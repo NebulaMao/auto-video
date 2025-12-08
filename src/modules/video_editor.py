@@ -199,7 +199,6 @@ class VideoEditor:
             else:
                 
                 # 多个片段,拼接（使用后端抽象）
-                # print("+++++++++++++++========")
                 self.backend.concat_videos(
                     processed_clips,
                     str(output_file),

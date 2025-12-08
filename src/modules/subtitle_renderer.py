@@ -4,6 +4,7 @@
 负责将字幕叠加到视频上,支持自定义样式。
 """
 
+import re
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 from ..core.exceptions import SubtitleError
@@ -620,6 +621,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if has_xml_color_tags(text):
                 # 对XML文本进行智能分行（保留颜色标记），基于字符长度而非ASS代码长度
                 from ..utils.xml_color_parser import clean_xml_tags
+                from ..utils.text_utils import clean_xml_preserving_tags
+
+                # 先清理文本中的多余换行和空白，但保留颜色标记
+                text = clean_xml_preserving_tags(text)
                 clean_text = clean_xml_tags(text)
 
                 if len(clean_text) > max_chars_per_line:
@@ -631,16 +636,31 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     ass_text = self._convert_xml_to_ass(text)
 
                 # 将真实换行符转换为ASS换行，避免破坏颜色标记
-                ass_text = ass_text.replace('\r\n', '\n').replace('\r', '\n').replace('\n', '\\N')
+                # 确保没有重复的换行转换
+                ass_text = ass_text.replace('\r\n', '\n').replace('\r', '\n')
+                # 手动处理连续换行符，避免正则表达式问题
+                lines = ass_text.split('\n')
+                # 过滤掉空行，只保留非空行
+                non_empty_lines = [line for line in lines if line.strip()]
+                # 将非空行用ASS换行符连接
+                ass_text = '\\N'.join(non_empty_lines)
 
                 events.append(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,{self.margin},,{ass_text}")
             else:
-                # 普通文本，先智能分行
+                # 普通文本，先清理和智能分行
+                from ..utils.text_utils import clean_text as clean_text_utils
+
+                # 先清理文本中的多余换行和空白
+                text = clean_text_utils(text, remove_extra_spaces=True)
+
                 # 转义特殊字符
-                text = text.replace('\\', '\\\\').replace('\n', '\\N')
+                text = text.replace('\\', '\\\\')
 
                 # 智能分行处理
                 text = self._split_text_by_line_length(text, max_chars_per_line)
+
+                # 将换行符转换为ASS格式
+                text = text.replace('\n', '\\N')
 
                 events.append(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,{self.margin},,{text}")
 
@@ -792,6 +812,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             return xml_text
 
         from ..utils.xml_color_parser import parse_xml_color_text
+        from ..utils.text_utils import clean_text as clean_text_utils
+
+        # 先清理输入文本
+        xml_text = clean_text_utils(xml_text, remove_extra_spaces=True)
 
         segments, _ = parse_xml_color_text(xml_text)
         plain_text = ''.join(seg.text for seg in segments)
@@ -820,6 +844,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
                 take = min(len(text) - pos, remaining)
                 chunk = text[pos:pos + take]
+                # 清理每个分块的空白
+                chunk = clean_text_utils(chunk, remove_extra_spaces=True)
                 line_segments[line_index].append((chunk, segment.color))
                 pos += take
                 remaining -= take
@@ -838,6 +864,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     line_text += chunk
                 else:
                     line_text += f"<{color}>{chunk}</{color}>"
+            # 清理每行的最终文本
+            line_text = clean_text_utils(line_text, remove_extra_spaces=True)
             xml_lines.append(line_text)
 
         result = '\\N'.join(xml_lines)
