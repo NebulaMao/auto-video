@@ -5,14 +5,14 @@
 """
 
 from .llm_client import LLMClient
-from .material_searcher import MaterialSearcher
+from .random_material_selector import RandomMaterialSelector
 from .tts_engine import TTSEngine
 from .video_editor import VideoEditor
 from .subtitle_renderer import SubtitleRenderer
 
 __all__ = [
     "LLMClient",
-    "MaterialSearcher",
+    "RandomMaterialSelector",
     "TTSEngine",
     "VideoEditor",
     "SubtitleRenderer",

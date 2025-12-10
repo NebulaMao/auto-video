@@ -22,7 +22,6 @@ from .exceptions import (
     SubtitleError
 )
 from ..modules.llm_client import LLMClient
-from ..modules.material_searcher import MaterialSearcher
 from ..modules.random_material_selector import RandomMaterialSelector
 from ..modules.tts_engine import TTSEngine
 from ..modules.video_editor import VideoEditor
@@ -55,15 +54,13 @@ class WorkflowManager:
             # LLM客户端
             llm_config = config_manager.get_section('llm')
             self.llm_client = LLMClient(llm_config, self.logger)
-            
-            # 素材检索器
-            material_config = config_manager.get_section('material_search')
-            self.material_searcher = MaterialSearcher(material_config, self.logger)
 
             # 随机素材选择器
             random_config = config_manager.get_section('random_material_selector')
             if not random_config:
                 random_config = {}
+            # 使用material_search配置作为fallback
+            material_config = config_manager.get_section('material_search')
             random_config.setdefault('materials_dir', material_config.get('materials_dir', './data/materials'))
             random_config.setdefault('supported_formats', material_config.get('supported_formats', ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm', '.m4v', '.3gp', '.ogv', '.ts', '.mts', '.m2ts', '.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp']))
             self.random_material_selector = RandomMaterialSelector(random_config, self.logger)
@@ -99,7 +96,6 @@ class WorkflowManager:
 
             # 构建素材索引
             self.logger.info("构建素材索引")
-            # self.material_searcher.build_index()  # 暂时禁用语义搜索
             self.random_material_selector.build_index()
 
             self.logger.info("工作流管理器初始化完成")
@@ -330,7 +326,7 @@ class WorkflowManager:
             raise MaterialNotFoundError(f"素材选择失败: {str(e)}")
 
     def _retrieve_materials(self, scenes: List[Dict[str, Any]]) -> List[str]:
-        """检索匹配的素材（保留用于向后兼容）
+        """检索匹配的素材（已降级为随机选择）
 
         Args:
             scenes: 场景列表
@@ -338,39 +334,12 @@ class WorkflowManager:
         Returns:
             素材文件路径列表
         """
-        materials = []
+        # 降级为使用随机素材选择
+        self.logger.info("使用随机素材选择替代语义搜索")
+        scene_count = len(scenes)
+        estimated_duration = sum(scene.get('duration', 10) for scene in scenes)
 
-        for scene in scenes:
-            try:
-                # 使用场景的视觉描述检索素材
-                visual_desc = scene.get('visual_description', scene.get('narration', ''))
-
-                # 提取关键词
-                keywords = self.llm_client.extract_keywords(visual_desc)
-                search_query = ' '.join(keywords)
-
-                self.logger.info(f"场景 {scene.get('scene_id')}: 检索关键词 '{search_query}'")
-
-                # 检索素材(优先视频,其次图片)
-                results = self.material_searcher.search(search_query, material_type='video', top_k=1)
-
-                if not results:
-                    # 如果没有视频,尝试检索图片
-                    results = self.material_searcher.search(search_query, material_type='image', top_k=1)
-
-                if results:
-                    materials.append(results[0]['path'])
-                    self.logger.info(f"找到素材: {results[0]['filename']}")
-                else:
-                    self.logger.warning(f"场景 {scene.get('scene_id')} 未找到匹配素材")
-
-            except Exception as e:
-                self.logger.warning(f"场景素材检索失败: {str(e)}")
-
-        if not materials:
-            raise MaterialNotFoundError("未找到任何可用素材")
-
-        return materials
+        return self.random_material_selector.select_materials(scene_count, estimated_duration)
     
     def _generate_tts(self, script: str, task_id: str) -> str:
         """生成TTS语音
@@ -553,8 +522,16 @@ class WorkflowManager:
 
             self.logger.info(f"字幕换行参数: 视频宽度={video_width}px, 每行最大字符数={max_chars_per_line}")
 
-            # 智能分段处理
-            processed_segments = self._smart_segmentation(segments_info, max_chars_per_line)
+            # 保持与 TTS 分段一一对应，避免新增字幕段导致音画错位
+            processed_segments = []
+            for segment in segments_info:
+                processed_segments.append({
+                    'text': segment.get('original_text', segment['text']),
+                    'original_text': segment.get('original_text', segment['text']),
+                    'duration': segment['duration'],
+                    'start_time': segment['start_time'],
+                    'end_time': segment['end_time'],
+                })
 
             # 生成SRT格式字幕
             with open(subtitle_path, 'w', encoding='utf-8') as f:
@@ -639,7 +616,7 @@ class WorkflowManager:
                 sentences = self._split_text_to_sentences(text)
 
                 if len(sentences) > 1:
-                    lengths = [max(len(sentence.strip()), 1) for sentence in sentences]
+                    lengths = [max(self._estimate_spoken_length(sentence.strip()), 1) for sentence in sentences]
                     total_length = sum(lengths)
                     cursor = start_time
 
@@ -667,7 +644,7 @@ class WorkflowManager:
                 else:
                     # 如果无法按句子分割，按长度强制分割
                     chunks = self._split_long_text(text, max_chars_per_line * 2)
-                    lengths = [max(len(chunk.strip()), 1) for chunk in chunks]
+                    lengths = [max(self._estimate_spoken_length(chunk.strip()), 1) for chunk in chunks]
                     total_length = sum(lengths)
                     cursor = start_time
 
@@ -725,6 +702,27 @@ class WorkflowManager:
             sentences = [s.strip() for s in sentences if s.strip()]
 
         return sentences if sentences else [text]
+
+    def _estimate_spoken_length(self, text: str) -> float:
+        """估算文本的朗读长度，给停顿符号更高权重以贴近语音节奏"""
+        if not text:
+            return 0.0
+
+        # 使用清理后的文本来避免颜色标签干扰时长比例
+        cleaned = clean_text(text, remove_extra_spaces=True)
+
+        weight_map = {
+            '.': 1.5, '。': 1.5, '!': 1.5, '！': 1.5, '?': 1.5, '？': 1.5,
+            ',': 1.2, '，': 1.2, ';': 1.2, '；': 1.2, '、': 1.2
+        }
+
+        length = 0.0
+        for ch in cleaned:
+            if ch.isspace():
+                continue
+            length += weight_map.get(ch, 1.0)
+
+        return max(length, 0.1)
 
     def _split_long_text(self, text: str, max_length: int) -> list:
         """将长文本按长度分割
@@ -926,15 +924,9 @@ class WorkflowManager:
             # 步骤7: 生成字幕
             self._update_progress(progress_callback, "正在生成字幕...", 70)
             self.logger.info("步骤7: 基于分段TTS信息生成字幕")
-            try:
-                subtitle_path = self._generate_subtitles_from_segments(segments_info, task_id)
-                temp_files.append(subtitle_path)
-                self.logger.info(f"基于分段TTS信息生成字幕完成: {subtitle_path}")
-            except Exception as e:
-                self.logger.warning(f"基于分段TTS信息生成字幕失败，回退到Whisper: {str(e)}")
-                subtitle_path = self._generate_subtitles(tts_audio_path, task_id)
-                temp_files.append(subtitle_path)
-                self.logger.info(f"Whisper字幕生成完成: {subtitle_path}")
+            subtitle_path = self._generate_subtitles_from_segments(segments_info, task_id)
+            temp_files.append(subtitle_path)
+            self.logger.info(f"基于分段TTS信息生成字幕完成: {subtitle_path}")
 
             # 步骤8: 渲染字幕到视频
             self._update_progress(progress_callback, "正在渲染字幕...", 85)
@@ -1019,16 +1011,16 @@ class WorkflowManager:
     
     def list_available_materials(self) -> List[Dict[str, Any]]:
         """列出可用素材
-        
+
         Returns:
             素材列表
         """
-        return list(self.material_searcher.material_index.values())
+        all_materials = self.random_material_selector.video_materials + self.random_material_selector.image_materials
+        return all_materials
     
     def refresh_material_index(self) -> None:
         """刷新素材索引"""
         self.logger.info("刷新素材索引")
-        self.material_searcher.build_index()
         self.random_material_selector.build_index()
         self.logger.info("素材索引刷新完成")
 
@@ -1038,14 +1030,7 @@ class WorkflowManager:
         Returns:
             素材统计字典
         """
-        random_stats = self.random_material_selector.get_material_stats()
-        material_search_config = self.config_manager.get_section('material_search')
-        semantic_stats = {
-            'semantic_material_count': len(self.material_searcher.material_index),
-            'semantic_enabled': not material_search_config.get('deprecated', False)
-        }
-
-        return {**random_stats, **semantic_stats}
+        return self.random_material_selector.get_material_stats()
 
     def _preprocess_subtitle_text(self, text: str) -> str:
         """预处理字幕文本，清理多余换行和空白

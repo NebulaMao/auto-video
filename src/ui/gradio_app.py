@@ -12,7 +12,7 @@ from ..core.config import ConfigManager
 from ..core.logger import Logger
 from ..core.workflow_manager import WorkflowManager
 from ..modules.llm_client import LLMClient
-from ..modules.material_searcher import MaterialSearcher
+from ..modules.random_material_selector import RandomMaterialSelector
 from ..modules.tts_engine import TTSEngine
 from ..modules.video_editor import VideoEditor
 from ..modules.subtitle_renderer import SubtitleRenderer
@@ -47,7 +47,7 @@ class GradioApp:
         
         # 初始化各功能模块(延迟加载)
         self.llm_client = LLMClient(config_manager.get_section('llm'), logger)
-        self.material_searcher = None
+        self.random_material_selector = None
         self.tts_engine = None
         self.video_editor = None
         self.subtitle_renderer = None

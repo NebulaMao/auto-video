@@ -10,7 +10,7 @@ language = "zh-CN"  # 界面语言
 
 # ====================  LLM配置 ====================
 [llm]
-api_key = "sk-xxxxxxxxxxxxxxxx"  # 请填入你的DeepSeek API密钥
+api_key = "sk-nkqwtxoyuehlwkexkngcnjxjflghocyjvtxoodfzjnfomezm"  # 请填入你的DeepSeek API密钥
 base_url = "https://api.siliconflow.cn/v1"  # API基础URL
 model = "deepseek-ai/DeepSeek-V3.2"  # 使用的模型名称
 max_tokens = 4000  # 最大生成token数
@@ -31,7 +31,7 @@ segment_pause = 0.5  # 段落间停顿时间(秒)
 
 # ==================== SiliconFlow TTS 配置 ====================
 [siliconflow_tts]
-api_key = "sk-xxxxxxxxxxxxxxxx"  # SiliconFlow API密钥，请填入你的API密钥
+api_key = "sk-nkqwtxoyuehlwkexkngcnjxjflghocyjvtxoodfzjnfomezm"  # SiliconFlow API密钥，请填入你的API密钥
 base_url = "https://api.siliconflow.cn/v1"  # API基础URL
 model = "IndexTeam/IndexTTS-2"  # 模型名称
 voice = "fishaudio/fish-speech-1.4:david"  # 语音名称
@@ -68,7 +68,7 @@ font_color = "#FFFFFF"  # 字体颜色(白色)
 background_color = "#000000"  # 背景颜色(黑色)
 background_alpha = 0.0  # 背景透明度(0-1, 0为完全透明即无背景)
 position = "bottom"  # 位置: top, center, bottom
-margin = 800  # 边距(像素) - 距离底部800px，确保不贴底部
+margin = 80  # 边距(像素) - 距离底部80px，确保不贴底部
 alignment = "center"  # 对齐方式: left, center, right
 outline_color = "#000000"  # 描边颜色(黑色)
 outline_width = 2  # 描边宽度(像素)
@@ -92,10 +92,17 @@ backup_count = 5  # 保留的日志文件数量
 
 # ==================== 素材检索配置 ====================
 [material_search]
-semantic_similarity_threshold = 0.7  # 语义相似度阈值(0-1)
 max_results = 10  # 最大返回结果数
 supported_formats = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", ".webm", ".m4v", ".3gp", ".ogv", ".ts", ".mts", ".m2ts", ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp"]  # 支持的素材格式
-embedding_model = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"  # 语义匹配模型
+
+# ==================== 随机素材选择配置 ====================
+[random_material_selector]
+materials_dir = "./data/materials"  # 素材库目录
+materials_per_scene = 1  # 每个场景需要的素材数量
+video_priority = true  # 优先选择视频
+min_material_usage = 10  # 每个素材至少使用秒数
+allow_reuse = true  # 允许复用素材
+supported_formats = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", ".webm", ".m4v", ".3gp", ".ogv", ".ts", ".mts", ".m2ts", ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp"]  # 支持的素材格式
 
 # ==================== Gradio界面配置 ====================
 [ui]

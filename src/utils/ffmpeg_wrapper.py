@@ -676,15 +676,17 @@ class VideoProcessor:
 class AudioProcessor:
     """音频处理器"""
     
-    def __init__(self, error_handler: FFmpegErrorHandler, temp_manager: TempFileManager):
+    def __init__(self, error_handler: FFmpegErrorHandler, temp_manager: TempFileManager, logger=None):
         """初始化音频处理器
-        
+
         Args:
             error_handler: 错误处理器
             temp_manager: 临时文件管理器
+            logger: 日志记录器
         """
         self.error_handler = error_handler
         self.temp_manager = temp_manager
+        self.logger = logger
         # 创建视频信息提取器实例
         self.info_extractor = VideoInfoExtractor(error_handler)
     
@@ -1240,7 +1242,7 @@ class FFmpegWrapper:
         self.temp_manager = TempFileManager(temp_dir)
         self.info_extractor = VideoInfoExtractor(self.error_handler)
         self.video_processor = VideoProcessor(self.error_handler, self.temp_manager, self.logger)
-        self.audio_processor = AudioProcessor(self.error_handler, self.temp_manager)
+        self.audio_processor = AudioProcessor(self.error_handler, self.temp_manager, self.logger)
         self.subtitle_renderer = SubtitleRenderer(self.error_handler, self.temp_manager)
         self.effect_processor = EffectProcessor(self.error_handler, self.temp_manager)
         
