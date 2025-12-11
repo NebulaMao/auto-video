@@ -6,7 +6,7 @@ MoviePy视频编辑器模块
 
 import shutil
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
 
 from ..core.logger import Logger
@@ -51,13 +51,20 @@ class MoviePyVideoEditor:
         # 初始化MoviePy视频拼接器
         self.moviepy_concat = MoviePyVideoConcatenator(logger)
 
-    def create_video(self, script: List[Dict], materials: List[str], output_path: str) -> str:
+    def create_video(
+        self,
+        script: List[Dict],
+        materials: List[str],
+        output_path: str,
+        target_total_duration: Optional[float] = None
+    ) -> str:
         """创建视频（使用MoviePy实现）
 
         Args:
             script: 脚本段落列表
             materials: 素材文件路径列表
             output_path: 输出视频路径
+            target_total_duration: 目标总时长（用于按实际音频时长缩放场景时长）
 
         Returns:
             输出视频路径
@@ -72,25 +79,80 @@ class MoviePyVideoEditor:
             output_file = Path(output_path)
             output_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # 处理视频片段（标准化处理）
-            processed_clips = []
-            for i, (material_path, scene_info) in enumerate(zip(materials, script)):
+            # 计算场景时长，必要时按目标总时长缩放
+            scene_durations = [float(scene.get('duration', 5)) for scene in script] if script else []
+            total_scene_duration = sum(scene_durations)
+            if target_total_duration and total_scene_duration > 0:
+                scale = target_total_duration / total_scene_duration
+                scene_durations = [max(1.0, duration * scale) for duration in scene_durations]
+                if self.logger:
+                    self.logger.info(
+                        f"按目标总时长 {target_total_duration:.2f}s 缩放场景时长, 比例 {scale:.3f}"
+                    )
+            elif not scene_durations:
+                # 没有场景信息时，均分目标时长或使用默认值
+                default_duration = (
+                    float(target_total_duration) / max(len(materials), 1)
+                    if target_total_duration else 5.0
+                )
+                default_duration = max(1.0, default_duration)
+                scene_durations = [default_duration] * max(len(materials), 1)
+
+            material_segments = []
+            for material_path in materials:
                 if not material_path or not Path(material_path).exists():
                     if self.logger:
                         self.logger.warning(f"素材文件不存在，跳过: {material_path}")
                     continue
 
                 try:
-                    # 获取对应的场景时长信息
-                    duration = scene_info.get('duration', 5)
+                    with VideoFileClip(material_path) as probe_clip:
+                        source_duration = float(probe_clip.duration or 0)
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f"读取素材时长失败，跳过 {material_path}: {e}")
+                    continue
 
-                    # 生成临时处理文件路径
-                    temp_output = str(output_file.parent / f"temp_clip_{i}.mp4")
+                if source_duration <= 0.1:
+                    if self.logger:
+                        self.logger.warning(f"素材时长异常（<=0.1s），跳过: {material_path}")
+                    continue
 
-                    # 处理素材（标准化格式、调整时长和分辨率）
-                    self.process_video_clip(material_path, duration, temp_output)
+                material_segments.append({
+                    "path": material_path,
+                    "start": 0.0,
+                    "remaining": source_duration
+                })
 
-                    # 验证临时文件是否有效生成
+            if not material_segments:
+                raise VideoProcessingError("没有可用的素材片段")
+
+            total_target_duration = sum(scene_durations)
+            total_material_duration = sum(seg["remaining"] for seg in material_segments)
+            if total_material_duration + 0.1 < total_target_duration and self.logger:
+                self.logger.warning(
+                    f"素材总时长({total_material_duration:.2f}s)短于目标时长({total_target_duration:.2f}s)，"
+                    "可能需要重复使用素材"
+                )
+
+            processed_clips: List[str] = []
+            segment_index = 0
+            last_material_path: Optional[str] = None
+            for scene_idx, target_duration in enumerate(scene_durations):
+                remaining = max(target_duration, 0.0)
+
+                while remaining > 0.1 and segment_index < len(material_segments):
+                    segment = material_segments[segment_index]
+                    use_duration = min(remaining, segment["remaining"])
+                    temp_output = str(output_file.parent / f"temp_clip_{len(processed_clips)}.mp4")
+
+                    self.process_video_clip(
+                        segment["path"],
+                        use_duration,
+                        temp_output,
+                        start_time=segment["start"]
+                    )
+
                     if not Path(temp_output).exists():
                         raise VideoProcessingError(f"临时文件未生成: {temp_output}")
 
@@ -99,21 +161,37 @@ class MoviePyVideoEditor:
                         raise VideoProcessingError(f"临时文件大小异常: {temp_file_size} bytes")
 
                     processed_clips.append(temp_output)
+                    last_material_path = segment["path"]
 
-                except Exception as e:
+                    segment["start"] += use_duration
+                    segment["remaining"] -= use_duration
+                    remaining -= use_duration
+
+                    if segment["remaining"] <= 0.1:
+                        segment_index += 1
+
+                if remaining > 0.1 and last_material_path:
+                    # 素材不足时的兜底：重复最后一个素材补足剩余时长
                     if self.logger:
-                        self.logger.error(f"处理素材时出错，跳过: {material_path}, 错误: {e}")
-                    continue
+                        self.logger.warning(
+                            f"场景 {scene_idx + 1} 仍有 {remaining:.2f}s 未覆盖，重复最后一个素材补足"
+                        )
+                    temp_output = str(output_file.parent / f"temp_clip_{len(processed_clips)}.mp4")
+                    self.process_video_clip(last_material_path, remaining, temp_output)
+                    processed_clips.append(temp_output)
 
             if not processed_clips:
                 raise VideoProcessingError("没有有效的素材可以使用")
 
+            if self.logger:
+                self.logger.info(
+                    f"素材分配完成: {len(processed_clips)} 个片段覆盖 {len(scene_durations)} 个场景"
+                )
+
             # 拼接视频片段
             if len(processed_clips) == 1:
-                # 只有一个片段,直接复制到输出路径
                 shutil.copy2(processed_clips[0], str(output_file))
             else:
-                # 多个片段,使用MoviePy拼接
                 if self.logger:
                     self.logger.info(f"使用MoviePy拼接 {len(processed_clips)} 个视频片段")
 
@@ -139,19 +217,29 @@ class MoviePyVideoEditor:
                 self.logger.error(error_msg)
             raise VideoProcessingError(error_msg)
 
-    def process_video_clip(self, material_path: str, duration: float, output_path: str) -> str:
+    def process_video_clip(
+        self,
+        material_path: str,
+        duration: float,
+        output_path: str,
+        start_time: float = 0.0
+    ) -> str:
         """处理单个视频片段（使用MoviePy实现）
 
         Args:
             material_path: 输入素材路径
             duration: 目标时长(秒)
             output_path: 输出路径
+            start_time: 起始截取时间(秒)
 
         Returns:
             输出视频路径
         """
         if self.logger:
-            self.logger.info(f"使用MoviePy处理视频片段: {material_path} -> {output_path}, 目标时长: {duration}s")
+            self.logger.info(
+                f"使用MoviePy处理视频片段: {material_path} -> {output_path}, "
+                f"起始: {start_time}s, 目标时长: {duration}s"
+            )
 
         try:
             output_file = Path(output_path)
@@ -159,23 +247,33 @@ class MoviePyVideoEditor:
 
             # 加载视频
             clip = VideoFileClip(material_path)
-            #[debug] 输出视频原始信息
             if self.logger:
                 self.logger.info(f"原视频时长: {clip.duration:.2f}s, 分辨率: {clip.size}, FPS: {clip.fps}")
-            
-            # 调整时长 - 使用更安全的方法
-            if clip.duration > duration:
-                # 截取视频开头部分
-                processed_clip = clip.subclipped(0, duration)
-            elif clip.duration < duration:
-                # 循环播放直到达到目标时长 - 使用concatenate_videoclips而不是with_duration
-                loops_needed = int(duration // clip.duration) + 1
+
+            available_duration = max(clip.duration - start_time, 0)
+            if available_duration <= 0:
+                raise VideoProcessingError(f"素材可用时长不足: {material_path}")
+
+            target_duration = duration
+            if duration > available_duration:
+                target_duration = available_duration
+                if self.logger:
+                    self.logger.warning(
+                        f"请求时长({duration:.2f}s)超过可用片段({available_duration:.2f}s)，截取剩余部分"
+                    )
+
+            # 截取所需片段，优先避免循环重复
+            if start_time > 0 or target_duration < clip.duration:
+                end_time = min(start_time + target_duration, clip.duration)
+                processed_clip = clip.subclipped(start_time, end_time)
+            elif clip.duration < target_duration:
+                # 兜底：在需要时才循环补足，避免频繁重复
+                loops_needed = int(target_duration // clip.duration) + 1
                 clips_to_concat = [clip] * loops_needed
                 concatenated = concatenate_videoclips(clips_to_concat)
-                processed_clip = concatenated.subclipped(0, duration)
+                processed_clip = concatenated.subclipped(0, target_duration)
                 concatenated.close()
             else:
-                # 时长正好匹配
                 processed_clip = clip
 
             # 调整分辨率 - 修复：增强日志追踪

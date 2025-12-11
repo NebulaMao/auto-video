@@ -165,7 +165,12 @@ class WorkflowManager:
             # 步骤5: 组装视频
             self._update_progress(progress_callback, "正在组装视频...", 50)
             self.logger.info("步骤5: 组装视频")
-            video_without_audio_path = self._assemble_video(scenes, materials, task_id)
+            video_without_audio_path = self._assemble_video(
+                scenes,
+                materials,
+                task_id,
+                target_duration=actual_audio_duration
+            )
             temp_files.append(video_without_audio_path)
             self.logger.info(f"视频组装完成: {video_without_audio_path}")
             
@@ -769,7 +774,8 @@ class WorkflowManager:
         self,
         scenes: List[Dict[str, Any]],
         materials: List[str],
-        task_id: str
+        task_id: str,
+        target_duration: Optional[float] = None
     ) -> str:
         """组装视频
         
@@ -783,7 +789,13 @@ class WorkflowManager:
         """
         try:
             video_path = self.temp_dir / f"video_no_audio_{task_id}.mp4"
-            result = self.video_editor.create_video(scenes, materials, str(video_path), cleanup_temp=False)
+            result = self.video_editor.create_video(
+                scenes,
+                materials,
+                str(video_path),
+                cleanup_temp=False,
+                target_duration=target_duration
+            )
             # 将临时文件添加到统一清理列表
             if 'temp_files' in result:
                 self.temp_files.extend(result['temp_files'])
@@ -910,7 +922,12 @@ class WorkflowManager:
             # 步骤5: 组装视频
             self._update_progress(progress_callback, "正在组装视频...", 50)
             self.logger.info("步骤5: 组装视频")
-            video_without_audio_path = self._assemble_video(scenes, materials, task_id)
+            video_without_audio_path = self._assemble_video(
+                scenes,
+                materials,
+                task_id,
+                target_duration=actual_audio_duration
+            )
             temp_files.append(video_without_audio_path)
             self.logger.info(f"视频组装完成: {video_without_audio_path}")
 

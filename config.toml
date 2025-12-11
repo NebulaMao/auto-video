@@ -111,4 +111,4 @@ description = "基于AI技术的自动化宣传视频生成工具"  # 界面描�
 theme = "default"  # 界面主题
 share = false  # 是否生成公共分享链接
 server_port = 7860  # 服务端口
-server_name = "127.0.0.1"  # 服务地址(0.0.0.0表示允许外部访问)
+server_name = "0.0.0.0"  # 服务地址(0.0.0.0表示允许外部访问)

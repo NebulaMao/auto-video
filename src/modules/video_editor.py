@@ -600,7 +600,13 @@ class VideoEditor:
         """使用MoviePy后端创建视频"""
         try:
             # 使用MoviePy后端的create_video方法
-            result_path = self.backend.create_video(script, materials, output_path)
+            target_total_duration = kwargs.get("target_duration")
+            result_path = self.backend.create_video(
+                script,
+                materials,
+                output_path,
+                target_total_duration=target_total_duration
+            )
 
             return {
                 'output_path': result_path,
