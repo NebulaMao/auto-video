@@ -1,0 +1,114 @@
+# AutoVideo 配置文件
+# 请根据实际情况修改以下配置
+
+# ==================== 应用程序基本配置 ====================
+[app]
+name = "AutoVideo"
+version = "0.1.0"
+debug = false  # 调试模式
+language = "zh-CN"  # 界面语言
+
+# ====================  LLM配置 ====================
+[llm]
+api_key = "sk-nkqwtxoyuehlwkexkngcnjxjflghocyjvtxoodfzjnfomezm"  # 请填入你的DeepSeek API密钥
+base_url = "https://api.siliconflow.cn/v1"  # API基础URL
+model = "deepseek-ai/DeepSeek-V3.2"  # 使用的模型名称
+max_tokens = 4000  # 最大生成token数
+temperature = 0.7  # 生成温度(0-1)
+timeout = 30  # API请求超时时间(秒)
+
+# ==================== TTS语音合成配置 ====================
+[tts]
+engine = "siliconflow"  # TTS引擎: edge-tts, siliconflow, pyttsx3, azure-tts
+voice = "zh-CN-XiaoxiaoNeural"  # 语音名称(中文女声)
+rate = 1.0  # 语速倍率(0.5-2.0)
+volume = 1.0  # 音量倍率(0.0-2.0)
+pitch = 0  # 音调偏移(-100到100 Hz)
+segment_by_punctuation = true  # 是否按标点符号分段TTS
+min_segment_length = 10  # 最小段落长度(字符)
+max_segment_length = 50  # 最大段落长度(字符) - 从100改为50，使字幕更短更易读
+segment_pause = 0.5  # 段落间停顿时间(秒)
+
+# ==================== SiliconFlow TTS 配置 ====================
+[siliconflow_tts]
+api_key = "sk-nkqwtxoyuehlwkexkngcnjxjflghocyjvtxoodfzjnfomezm"  # SiliconFlow API密钥，请填入你的API密钥
+base_url = "https://api.siliconflow.cn/v1"  # API基础URL
+model = "IndexTeam/IndexTTS-2"  # 模型名称
+voice = "fishaudio/fish-speech-1.4:david"  # 语音名称
+response_format = "mp3"  # 响应格式: mp3, opus, wav, pcm
+sample_rate = 32000  # 采样率
+speed = 1.0  # 语速倍率(0.25-4.0)
+gain = 0  # 音量增益(-10到10)
+stream = false  # 是否流式响应
+timeout = 30  # API请求超时时间(秒)
+
+# 重试配置
+max_retry_attempts = 30  # 最大重试次数
+retry_base_delay = 1.0  # 基础延迟时间(秒)
+retry_max_delay = 60.0  # 最大延迟时间(秒)
+
+
+
+# ==================== 视频处理配置 ====================
+[video]
+backend = "moviepy"
+resolution = [1080, 1920]  # 分辨率 [宽度, 高度]
+fps = 30  # 帧率
+codec = "libx264"  # 视频编码器
+bitrate = "2000k"  # 视频比特率
+audio_codec = "aac"  # 音频编码器
+audio_bitrate = "128k"  # 音频比特率
+format = "mp4"  # 输出格式
+
+# ==================== 字幕样式配置 ====================
+[subtitle]
+font_family = "./assets/fonts/ZiZhiQuXiMaiTi-2.ttf"  # 字体文件路径
+font_size = 48  # 字体大小(像素) - 增大以改善可读性
+font_color = "#FFFFFF"  # 字体颜色(白色)
+background_color = "#000000"  # 背景颜色(黑色)
+background_alpha = 0.0  # 背景透明度(0-1, 0为完全透明即无背景)
+position = "bottom"  # 位置: top, center, bottom
+margin = 80  # 边距(像素) - 距离底部80px，确保不贴底部
+alignment = "center"  # 对齐方式: left, center, right
+outline_color = "#000000"  # 描边颜色(黑色)
+outline_width = 2  # 描边宽度(像素)
+max_width = 0.85  # 最大宽度比例(0-1) - 略微增大以显示更多内容
+
+# ==================== 路径配置 ====================
+[paths]
+materials_dir = "./data/materials"  # 素材库目录
+output_dir = "./data/output"  # 输出目录
+temp_dir = "./data/temp"  # 临时文件目录
+fonts_dir = "./assets/fonts"  # 字体文件目录
+templates_dir = "./assets/templates"  # 视频模板目录
+
+# ==================== 日志配置 ====================
+[logging]
+level = "INFO"  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # 日志格式
+file = "./logs/autovideo.log"  # 日志文件路径
+max_size = "10MB"  # 单个日志文件最大大小
+backup_count = 5  # 保留的日志文件数量
+
+# ==================== 素材检索配置 ====================
+[material_search]
+max_results = 10  # 最大返回结果数
+supported_formats = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", ".webm", ".m4v", ".3gp", ".ogv", ".ts", ".mts", ".m2ts", ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp"]  # 支持的素材格式
+
+# ==================== 随机素材选择配置 ====================
+[random_material_selector]
+materials_dir = "./data/materials"  # 素材库目录
+materials_per_scene = 1  # 每个场景需要的素材数量
+video_priority = true  # 优先选择视频
+min_material_usage = 10  # 每个素材至少使用秒数
+allow_reuse = true  # 允许复用素材
+supported_formats = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", ".webm", ".m4v", ".3gp", ".ogv", ".ts", ".mts", ".m2ts", ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp"]  # 支持的素材格式
+
+# ==================== Gradio界面配置 ====================
+[ui]
+title = "AutoVideo - 自动化宣传视频生成系统"  # 界面标题
+description = "基于AI技术的自动化宣传视频生成工具"  # 界面描述
+theme = "default"  # 界面主题
+share = false  # 是否生成公共分享链接
+server_port = 7860  # 服务端口
+server_name = "0.0.0.0"  # 服务地址(0.0.0.0表示允许外部访问)
