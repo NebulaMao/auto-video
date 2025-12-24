@@ -7,7 +7,7 @@ MoviePy视频编辑器模块
 import shutil
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
+from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips
 
 from ..core.logger import Logger
 from ..core.exceptions import VideoProcessingError
